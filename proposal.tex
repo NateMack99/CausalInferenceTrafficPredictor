@@ -1,0 +1,136 @@
+\documentclass[sigconf,nonacm]{acmart}
+
+\title[Traffic Accident Spillovers]{Causal Graph Learning for Traffic Accident Spillovers}
+
+\author{Kyle Luong}
+\authornote{All authors contributed equally to this work.}
+\email{kyle@virginia.edu}
+\affiliation{\institution{University of Virginia}\city{Charlottesville}\state{Virginia}\country{USA}}
+
+\author{Nate Mackintosh}
+\authornotemark[1]
+\email{qjz5my@virginia.edu}
+\affiliation{\institution{University of Virginia}\city{Charlottesville}\state{Virginia}\country{USA}}
+
+\author{Maddox Shrum}
+\authornotemark[1]
+\email{tyq3jy@virginia.edu}
+\affiliation{\institution{University of Virginia}\city{Charlottesville}\state{Virginia}\country{USA}}
+
+\renewcommand{\shortauthors}{Luong et al.}
+
+\begin{document}
+
+\begin{abstract}
+Traffic accidents can slow traffic on the incident road and on connected roads. We propose a causal graph learning study of these effects using Chicago crash reports and historical traffic speeds. We will compare matched event studies with graph-based machine learning models to estimate how slowdowns change across roads and time. Our goal is to test whether network learning improves \emph{causal effect estimation}, not only traffic prediction.
+\end{abstract}
+
+\keywords{graph machine learning, causal inference, traffic accidents, spatiotemporal graphs, network interference}
+\maketitle
+
+\section{Research Direction}
+An accident may disrupt traffic on several connected roads. Its effect depends on the road network and on traffic conditions before the event. We study this as a problem of network interference: an event at one segment may change outcomes at other segments.
+
+\noindent\textbf{Main question:} Can graph learning improve estimates of the traffic slowdowns caused by accidents, including their spread across connected roads over time?
+
+\section{Related Work}
+Cao et al. estimate incident-related speed reductions and identify spatiotemporal regions affected by incidents \cite{cao2021traffic}. Li et al. use doubly robust causal learning to estimate how crash effects vary across highway locations and conditions \cite{li2024crash}. These studies show why comparing raw before-and-after speeds is insufficient.
+
+CASTANET combines graph learning and causal effect estimates to forecast traffic after incidents \cite{kitahara2026castanet}. Our focus is more specific: whether road-network information improves estimation of the effects themselves, particularly on roads that do not experience the crash. Unlike CASTANET, our study will separately evaluate counterfactual quality and causal evidence. Using a GNN alone is not our proposed contribution.
+
+\section{Problem and Data}
+\begin{itemize}
+    \item \textbf{Graph:} Nodes are monitored road segments; edges represent road connections. Direction will be used where reliable.
+    \item \textbf{Exposure:} A reported accident on one segment. Connected segments may experience indirect exposure.
+    \item \textbf{Outcome:} Segment-level traffic speed before and after the accident.
+    \item \textbf{Causal target:} Speed differences attributable to the accident, relative to comparable conditions without it.
+\end{itemize}
+
+Chicago publishes crash times and locations and ten-minute arterial speed estimates \cite{chicagoCrashes,chicagoSpeeds}. The speed series uses bus GPS data and ends in April 2026 \cite{chicagoTrackerNotice}. It does not cover every road. We will first check crash-to-segment matches, timestamp quality, and speed coverage on a small connected network before fixing the sample.
+
+\section{Study Scope and Causal Targets}
+\textbf{Event definition.} We will start with crashes located on monitored arterial segments and recorded within the available speed history. A crash will serve as the event for a short before-and-after window. We will check whether it can be located on a unique directed segment and whether there are usable observations on its neighbors.
+
+\textbf{Effects of interest.} We will distinguish the speed change on the crash segment from changes on connected segments. Candidate horizons are ten-minute steps in roughly the first hour after an event; we may extend the window where coverage permits. We will report both the size and duration of slowdowns, including differences between upstream and downstream segments if directions can be resolved.
+
+\textbf{Counterfactual.} For each exposed segment, the target is the speed expected at the same time had the reported crash not occurred. This outcome cannot be observed directly. Our estimates will depend on matched crash-free periods and models fitted without information from after the crash in the event being evaluated.
+
+\section{Research Questions}
+\begin{itemize}
+    \item How do accident-related slowdowns vary across connected roads and time after an event?
+    \item Does graph learning improve counterfactual estimation compared with methods that ignore road connections?
+    \item Do direction, distance, or network position help explain which segments experience larger or longer effects?
+\end{itemize}
+
+\section{Proposed Approach}
+\subsection{Causal Design}
+We will match accident periods with crash-free periods on the same or comparable roads. Matching will use hour, day, season, and traffic conditions observed \emph{before} the event. A matched event study will estimate changes relative to these controls. Depending on overlap and sample size, we may add outcome regression or doubly robust adjustment.
+
+We will define direct and neighboring exposure before examining the post-accident outcomes. Periods with other nearby reported crashes will be excluded or flagged. We will compare pre-event speed trends and require sufficient overlap between crash and control periods. The causal interpretation rests on the assumption that selected controls approximate the speeds that would have occurred without the crash. This adjusts for observed congestion, not every hidden cause.
+
+\subsection{Graph Machine Learning}
+We will test message-passing and spatiotemporal graph models that use road connectivity and pre-event speed histories. Models may estimate the expected no-accident speed or learn representations for estimating direct and neighboring effects. Network interference motivates this approach \cite{ma2021interference}; a graph convolutional network is one possible baseline \cite{kipf2017gcn}.
+
+The initial graph will use verified road connections. Edge direction, network distance, and centrality can be added where useful. One candidate combines spatial message passing with a small temporal encoder over pre-event speeds. This could capture both road structure and the recent traffic trend without requiring a new architecture. We will not treat correlated speeds as proof of causal edges, and we will not use post-event measurements as counterfactual inputs.
+
+\subsection{Model Comparison}
+We will compare (i) a matched event-study baseline, (ii) a non-graph causal or outcome model, and (iii) a graph-aware model. Models will use comparable pre-event inputs. The non-graph model will also receive simple summaries of neighboring speeds, so a GNN must add value beyond access to neighbor data. Ablations will remove road links or neighbor features to test the contribution of graph learning.
+
+\section{Identification and Evaluation}
+\textbf{Assumptions.} Control periods must provide credible untreated trends, and the graph must capture the main roads exposed to each event. Accidents are not random: congestion may increase crash risk. Approximate reporting times, missing speeds, and other incidents can also bias estimates.
+
+\textbf{Causal checks.} We will examine pre-event trends, placebo event times, different matching rules, and alternate exposure neighborhoods. Effects will be reported by time since the accident and network distance, with uncertainty grouped by accident event. We will report the fraction of events with complete speed coverage.
+
+\textbf{GML checks.} We will test on held-out events and time periods, keeping observations from the same event together. Prediction error on crash-free periods will be reported separately from causal robustness. If feasible, semi-synthetic effects on the real road graph will give a benchmark with known counterfactual outcomes.
+
+\section{Experimental Plan}
+\textbf{Data construction.} Match crash reports to road geometry and speed observations. Exclude uncertain matches and record missing values; do not treat missing speed as zero. Build before-and-after event windows on the ten-minute time grid.
+
+\textbf{Exposure and controls.} Begin with the crash segment and immediately connected roads. Compare upstream and downstream effects if direction is reliable. Select crash-free controls using pre-event conditions, and verify their speed trends before treatment.
+
+\textbf{Learning and testing.} Train graph and non-graph estimators on comparable data splits. Compare estimated effects, lead-time placebos, uncertainty, and sensitivity to removing road connections. A better speed predictor will not automatically count as a better causal model.
+
+\section{Research Tests and Success Criteria}
+\textbf{Primary test.} Compare estimated slowdowns on the incident segment and its one- and two-hop neighbors, with uncertainty bands. A result that varies systematically across road direction or graph distance would provide an interpretable network finding, even if complex models offer no improvement.
+
+\textbf{Model contribution.} Compare the graph model with a temporal model using the same pre-event observations and a baseline that also receives simple neighboring-speed summaries. Test a graph with removed or rewired edges to distinguish useful road structure from added model capacity. We will not call lower prediction error evidence of lower causal bias without further tests.
+
+\textbf{Known-effect check.} If feasible, inject simulated speed shocks into real, crash-free histories on the observed road graph. The shock size, direction, and propagation pattern will be known, so we can measure error in recovered effects and interval coverage. Such tests support method evaluation but cannot validate causal assumptions for actual crashes.
+
+\textbf{Feasibility threshold.} The pilot must show enough events with reliable crash-to-segment matches, valid pre/post speeds, and candidate controls. If neighboring coverage is weak, we will narrow the study to well-observed corridors rather than impute large portions of the network or claim unsupported spillovers.
+
+% \section{Potential Extensions}
+% \begin{itemize}
+%     \item \textbf{Dynamic propagation:} Study how upstream and downstream effects evolve with spatiotemporal GNNs.
+%     \item \textbf{Heterogeneous effects:} Test variation by crash type, time of day, and road centrality.
+%     \item \textbf{Robust causal learning:} Explore latent traffic conditions, geographic transfer, and semi-synthetic benchmarks.
+%     \item \textbf{Network vulnerability:} Identify road segments associated with larger spillovers, if causal estimates are credible.
+% \end{itemize}
+
+\section{Hypotheses and Interpretation}
+\textbf{H1: Network exposure matters.} We expect the average accident-related speed reduction to be greatest near the incident, with possible differences between upstream and downstream segments. We will test this pattern rather than impose it as a model assumption. A negligible neighboring effect is also a meaningful result.
+
+\textbf{H2: Graph learning adds information.} When road connections are informative, a graph model may estimate untreated speeds more accurately than a temporal model alone. The stronger claim---that it recovers causal effects more reliably---will be tested with placebo checks and, if feasible, known-effect simulations. We will distinguish these two claims in every result table.
+
+\textbf{Scope of claims.} Even a consistent effect pattern does not prove that congestion physically traveled along each graph edge. Changes in route choice, traffic signals, and common demand shocks can create similar patterns. We will describe the estimated effects as conditional on our matched-control design rather than assert that the GNN discovered a causal road network.
+
+\section{Reproducibility and Deliverables}
+We plan to release code for event matching, road-graph construction, data-quality reports, model training, and causal diagnostics. Scripts will retain the exact sample filters and train/test event assignments. The report will include a coverage map, an event-time plot for direct and neighboring roads, an ablation table, and an explanation of cases where the causal assumptions appear weak. We will also report the runtime and data requirements of the main models. This makes the project useful even if a complex model does not outperform the simpler causal baseline.
+
+\section{Expected Outcome and Timeline}
+\begin{itemize}
+    \item \textbf{Stage 1:} Validate crash matching, traffic coverage, and graph connections. 
+    \newline \textbf{Oct 30}
+    \item \textbf{Stage 2:} Construct matched events and estimate baseline direct and neighboring effects.
+    \newline \textbf{Nov 6}
+    \item \textbf{Stage 3:} Train graph models and run network ablations. 
+    \newline \textbf{Nov 20}
+    \item \textbf{Stage 4:} Test causal assumptions, uncertainty, and one extension supported by the data.
+    \newline \textbf{Nov 27}
+\end{itemize}
+
+We expect a reproducible study of whether, when, and how network learning improves estimates of crash-related congestion. Weak or null graph effects will also be reported.
+
+\bibliographystyle{template/ACM-Reference-Format}
+\bibliography{proposal/proposal}
+\end{document}
