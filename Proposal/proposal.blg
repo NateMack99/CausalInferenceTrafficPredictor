@@ -1,0 +1,60 @@
+This is BibTeX, Version 0.99e (TeX Live 2026/Arch Linux)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: proposal.aux
+The style file: template/ACM-Reference-Format.bst
+Reallocated singl_function (elt_size=8) to 100 items from 50.
+Reallocated singl_function (elt_size=8) to 100 items from 50.
+Reallocated wiz_functions (elt_size=8) to 6000 items from 3000.
+Database file #1: proposal.bib
+Reallocated singl_function (elt_size=8) to 100 items from 50.
+Reallocated wiz_functions (elt_size=8) to 9000 items from 6000.
+Reallocated glb_str_ptr (elt_size=8) to 20 items from 10.
+Reallocated global_strs (elt_size=200001) to 20 items from 10.
+Reallocated glb_str_end (elt_size=8) to 20 items from 10.
+Reallocated singl_function (elt_size=8) to 100 items from 50.
+Warning--empty publisher in kipf2017gcn
+Warning--empty address in kipf2017gcn
+Warning--page numbers missing in both pages and numpages fields in kipf2017gcn
+Warning--empty address in ma2021interference
+You've used 8 entries,
+            6335 wiz_defined-function locations,
+            1583 strings with 20439 characters,
+and the built_in function-call counts, 8193 in all, are:
+= -- 1001
+> -- 258
+< -- 0
++ -- 87
+- -- 95
+* -- 558
+:= -- 798
+add.period$ -- 42
+call.type$ -- 8
+change.case$ -- 56
+chr.to.int$ -- 6
+cite$ -- 12
+duplicate$ -- 729
+empty$ -- 517
+format.name$ -- 115
+if$ -- 1932
+int.to.chr$ -- 4
+int.to.str$ -- 1
+missing$ -- 18
+newline$ -- 139
+num.names$ -- 54
+pop$ -- 271
+preamble$ -- 1
+purify$ -- 115
+quote$ -- 0
+skip$ -- 283
+stack$ -- 0
+substring$ -- 551
+swap$ -- 69
+text.length$ -- 0
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 200
+warning$ -- 4
+while$ -- 47
+width$ -- 0
+write$ -- 222
+(There were 4 warnings)
