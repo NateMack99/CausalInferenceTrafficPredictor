@@ -1,0 +1,13 @@
+# Fdb version 4
+["pdflatex"] 1793991537.37645 "/home/maddox/GraphML/CausalInferenceTrafficPredictor/Proposal/proposal.tex" "proposal.pdf" "proposal" 1793991537.4816 2
+  "/home/maddox/GraphML/CausalInferenceTrafficPredictor/Proposal/proposal.tex" 1793991483.94883 13633 69d8455aefb97251955b19941148f16b ""
+  "/usr/share/texmf-dist/web2c/texmf.cnf" 1775415801 43569 fd570f2fa160877d211e859f687312ba ""
+  "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1793286153 2328195 2063f3ecf7cbaee934d6a93501bc3624 ""
+  "acmart.cls" 0 -1 0 ""
+  "proposal.aux" 1793991529.37409 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
+  "proposal.tex" 1793991483.94883 13633 69d8455aefb97251955b19941148f16b ""
+  (generated)
+  "proposal.aux"
+  "proposal.log"
+  "proposal.pdf"
+  (rewritten before read)
