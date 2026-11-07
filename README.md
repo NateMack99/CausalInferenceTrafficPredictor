@@ -7,13 +7,11 @@ Estimate how crashes change traffic speeds on affected and neighboring roads ove
 Requires Python 3.11–3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync
-uv run pytest -q
-uv run ruff check .
-uv run ruff format --check .
+bash scripts/setup.sh
 ```
 
-`uv sync` creates `.venv/` and `uv.lock`. Commit the lockfile after the first sync.
+Setup creates `.venv` with uv if needed, syncs the locked Python environment, verifies your Chicago portal token,
+and optionally downloads and prepares the data.
 
 Modeling (PR #3) runs without real data, on mock tables written in the processed schema:
 

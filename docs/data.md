@@ -35,3 +35,12 @@ A missing speed must arrive as NaN — not the `-1` Chicago publishes, and not a
 - `outputs/`: figures, metrics, and checkpoints.
 
 These directories are excluded from Git. Document download commands, source dates, study area, counts, and cleaning decisions in the data-preparation PR.
+
+## Collection and map previews
+
+Run `bash scripts/setup.sh` to sync dependencies, configure the portal token, and
+optionally fetch data. See [collection commands](data_collection.md) and
+[window graph previews](window_graphs.md). The partitioned files in `data/parquet/`
+retain portal wall-clock timestamps; they are staging data, **not** the UTC
+`data/processed/` model contract above. Window GraphML files describe OSM road
+edges and are not yet the road-as-node PyG representation used by the models.
