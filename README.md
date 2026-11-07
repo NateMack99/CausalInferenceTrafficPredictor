@@ -2,10 +2,15 @@
 
 Investigating the utility of causal inference to predit and classify traffic incidents
 
-## Data
+## Setup
 
+Run 
+```
+bash setup.sh
+``` 
+to create a Python virtual environment, install `requirements.txt`, save your Chicago Data Portal app token to `data/.env`, and optionally download the data. Python 3 is required; downloads require `curl` and take a while (multiple GB).
 
-Use the following command to download the data (requires `wget`). Each file is ~1.5 GB and should not be pushed.
-```bash
-cd data && bash fetch_data.sh
+Activate the environment with 
+```
+source .venv/bin/activate
 ```
