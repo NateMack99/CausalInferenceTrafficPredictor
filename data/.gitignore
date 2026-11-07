@@ -1,4 +1,5 @@
 *.json
 *.csv
+*.graphml
 .env
 cache
