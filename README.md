@@ -10,7 +10,7 @@ Requires Python 3.11–3.12 and [uv](https://docs.astral.sh/uv/).
 bash scripts/setup.sh
 ```
 
-Setup syncs the locked Python environment, verifies your Chicago portal token,
+Setup creates `.venv` with uv if needed, syncs the locked Python environment, verifies your Chicago portal token,
 and optionally downloads and prepares the data.
 
 Modeling (PR #3) runs without real data, on mock tables written in the processed schema:

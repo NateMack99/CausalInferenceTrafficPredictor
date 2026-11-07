@@ -9,6 +9,11 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 1
 fi
 
+if [[ ! -d .venv ]]; then
+    echo "Creating a Python 3.12 virtual environment..."
+    uv venv --python 3.12 .venv
+fi
+
 echo "Syncing the locked Python 3.12 environment..."
 uv sync --locked --python 3.12
 mkdir -p data

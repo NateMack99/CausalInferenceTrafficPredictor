@@ -111,16 +111,19 @@ def test_graph_windows_and_plot(tmp_path):
 
 
 @pytest.mark.parametrize("download", [False, True])
-def test_setup_uses_locked_uv_environment_and_saved_token(tmp_path, download):
+@pytest.mark.parametrize("existing_venv", [False, True])
+def test_setup_uses_locked_uv_environment_and_saved_token(tmp_path, download, existing_venv):
     scripts, data, binary = tmp_path / "scripts", tmp_path / "data", tmp_path / "bin"
     for path in (scripts, data, binary):
         path.mkdir()
+    if existing_venv:
+        (tmp_path / ".venv").mkdir()
     shutil.copy(ROOT / "scripts/setup.sh", scripts / "setup.sh")
     (scripts / "fetch_data.sh").write_text('printf "%s" "$PYTHON_PATH" > "$SETUP_FETCH_LOG"\n')
     token = "CHICAGO_DATA_APP_TOKEN=mock-token\n"
     (data / ".env").write_text(token)
     uv = binary / "uv"
-    uv.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$SETUP_UV_LOG"\n')
+    uv.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$SETUP_UV_LOG"\n')
     curl = binary / "curl"
     curl.write_text("#!/bin/sh\nprintf 200\n")
     uv.chmod(0o755)
@@ -141,7 +144,8 @@ def test_setup_uses_locked_uv_environment_and_saved_token(tmp_path, download):
         check=True,
     )
     assert "skipping token" not in result.stderr
-    assert (tmp_path / "uv.log").read_text().splitlines() == [
+    expected_creation = [] if existing_venv else ["venv", "--python", "3.12", ".venv"]
+    assert (tmp_path / "uv.log").read_text().splitlines() == expected_creation + [
         "sync",
         "--locked",
         "--python",
