@@ -101,6 +101,8 @@ def prepare_roads(data_dir=DATA):
             max_speed_mph=float(row.max_speed_mph))
     starter.graph["speed_reference_period"] = f"{manifest['first_timestamp']}/{manifest['last_timestamp']}"
     reference.to_parquet(data_dir / "speed_segments.parquet", index=False)
+    reference.loc[reference.coverage_fraction >= .8].to_csv(
+        data_dir / "dense_80pct_segments.csv", index=False)
     roads.to_parquet(data_dir / "speed_roads.parquet", index=False)
     ox.save_graphml(starter, filepath=data_dir / "speed_road_network.graphml")
     print(f"Saved {len(reference)} observed segments and {len(roads)} matched road edges in {data_dir}")
