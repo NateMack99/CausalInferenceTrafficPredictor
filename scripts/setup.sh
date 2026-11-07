@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "Python 3 is required. Install it, then run this script again." >&2
+if ! command -v uv >/dev/null 2>&1; then
+    echo "uv is required. Install it from https://docs.astral.sh/uv/getting-started/installation/" >&2
     exit 1
 fi
 
-echo "Creating .venv and installing requirements..."
-if ! python3 -m venv .venv; then
-    echo "Could not create the virtual environment. On Debian/Ubuntu, install python3-venv and try again." >&2
-    exit 1
-fi
-.venv/bin/python -m pip install -r requirements.txt
+echo "Syncing the locked Python 3.12 environment..."
+uv sync --locked --python 3.12
+mkdir -p data
 
 if ! command -v curl >/dev/null 2>&1; then
     echo "curl is required to verify your app token. Install it and run setup again." >&2
@@ -84,10 +81,10 @@ while true; do
     case "$download" in
         y|Y|yes|YES|Yes)
             if ! command -v curl >/dev/null 2>&1; then
-                echo "curl is required to download the data. Install it and run data/fetch_data.sh from data/." >&2
+                echo "curl is required to download the data. Install it and run bash scripts/fetch_data.sh." >&2
                 exit 1
             fi
-            (cd "$PROJECT_DIR/data" && PYTHON_PATH=$PROJECT_DIR/.venv/bin/python bash -e fetch_data.sh)
+            PYTHON_PATH="$PROJECT_DIR/.venv/bin/python" bash "$PROJECT_DIR/scripts/fetch_data.sh"
             break
             ;;
         n|N|no|NO|No|"") break ;;

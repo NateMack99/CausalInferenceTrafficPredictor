@@ -1,8 +1,8 @@
 # Window graphs
 
 ```python
-from training.build_graph import build_graph
-from training.plot_graph import plot_graph
+from traffic_gml.graph import build_graph
+from traffic_gml.plot import plot_graph
 
 G = build_graph(
     crash_window=("2025-01-01 12:00", "2025-01-01 13:00"),
@@ -16,7 +16,7 @@ Windows are `[start, end)` in portal wall-clock time. GraphML, crash assignments
 and the PNG go in `training/output/` with timestamps in their filenames.
 
 Fetching prepares the speed-road reference in `data/`; rebuild it with
-`python data/prepare_roads.py`.
+`uv run python scripts/prepare_roads.py`.
 
 `only_80_percent=True` keeps edges whose traffic segment has a valid speed in
 at least 80% of the reference period's expected 10-minute intervals. Coverage is

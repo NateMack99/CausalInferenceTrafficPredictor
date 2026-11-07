@@ -1,12 +1,13 @@
 """Convert a Chicago CSV to a typed, date-partitioned Parquet dataset.
 
-Example: python data/convert_to_parquet.py data/chicago-speeds.csv --kind speeds
+Example: uv run python scripts/convert_to_parquet.py data/chicago-speeds.csv --kind speeds
 """
 
-import argparse
+from __future__ import annotations
+
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -15,8 +16,10 @@ import pyarrow.compute as pc
 import pyarrow.dataset as ds
 
 
-def _timestamps(values):
-    parsed = pd.to_datetime(values, format="%m/%d/%Y %I:%M:%S %p", errors="coerce").astype("datetime64[us]")
+def _timestamps(values: pd.Series) -> pd.Series:
+    parsed = pd.to_datetime(values, format="%m/%d/%Y %I:%M:%S %p", errors="coerce").astype(
+        "datetime64[us]"
+    )
     missing = parsed.isna()
     if missing.any():
         fallback = pd.to_datetime(values.loc[missing], format="ISO8601", errors="coerce")
@@ -30,7 +33,14 @@ def _timestamps(values):
     return parsed
 
 
-def csv_to_parquet(csv_path, output_dir=None, *, kind, chunksize=500_000, overwrite=False):
+def csv_to_parquet(
+    csv_path: str | Path,
+    output_dir: str | Path | None = None,
+    *,
+    kind: str,
+    chunksize: int = 500_000,
+    overwrite: bool = False,
+) -> dict[str, object]:
     """Stream speeds/crashes into date=YYYY-MM-DD partitions and return a manifest.
 
     Columns are lowercased and time/crash_date becomes timestamp (timezone-naive).
@@ -43,16 +53,20 @@ def csv_to_parquet(csv_path, output_dir=None, *, kind, chunksize=500_000, overwr
     if chunksize <= 0:
         raise ValueError("chunksize must be positive")
     csv_path = Path(csv_path).resolve()
-    destination = Path(output_dir).resolve() if output_dir else csv_path.parent / "parquet" / csv_path.stem
+    destination = (
+        Path(output_dir).resolve() if output_dir else csv_path.parent / "parquet" / csv_path.stem
+    )
     if csv_path.is_relative_to(destination):
         raise ValueError("The output directory cannot contain the input CSV")
     if not csv_path.is_file():
         raise FileNotFoundError(csv_path)
 
-    def check_destination():
+    def check_destination() -> None:
         if destination.exists():
             if not overwrite:
-                raise FileExistsError(f"{destination} already exists; pass overwrite=True or --overwrite")
+                raise FileExistsError(
+                    f"{destination} already exists; pass overwrite=True or --overwrite"
+                )
             if not destination.is_dir() or not (destination / "_conversion.json").is_file():
                 raise ValueError("Will only replace a dataset previously created by this converter")
 
@@ -65,8 +79,12 @@ def csv_to_parquet(csv_path, output_dir=None, *, kind, chunksize=500_000, overwr
     parquet_format = ds.ParquetFileFormat()
     options = parquet_format.make_write_options(compression="zstd")
     partitioning = ds.partitioning(pa.schema([("date", pa.date32())]), flavor="hive")
-    with tempfile.TemporaryDirectory(prefix=f".{destination.name}-", dir=destination.parent) as temporary, \
-            pd.read_csv(csv_path, dtype=str, chunksize=chunksize) as reader:
+    with (
+        tempfile.TemporaryDirectory(
+            prefix=f".{destination.name}-", dir=destination.parent
+        ) as temporary,
+        pd.read_csv(csv_path, dtype=str, chunksize=chunksize) as reader,
+    ):
         staged = Path(temporary) / "dataset"
         staged.mkdir()
         for batch, frame in enumerate(reader):
@@ -91,7 +109,9 @@ def csv_to_parquet(csv_path, output_dir=None, *, kind, chunksize=500_000, overwr
                 frame["speed_available"] = np.isfinite(values) & (values >= 0)
                 frame["speed"] = values.where(frame["speed_available"]).astype("float32")
                 unavailable += int((~frame["speed_available"]).sum())
-                column_types.update(segment_id=pa.int64(), speed=pa.float32(), speed_available=pa.bool_())
+                column_types.update(
+                    segment_id=pa.int64(), speed=pa.float32(), speed_available=pa.bool_()
+                )
             else:
                 for column in ("latitude", "longitude"):
                     if column in frame:
@@ -102,9 +122,14 @@ def csv_to_parquet(csv_path, output_dir=None, *, kind, chunksize=500_000, overwr
             table = pa.Table.from_pandas(frame, schema=schema, preserve_index=False)
             table = table.append_column("date", pc.cast(table["timestamp"], pa.date32()))
             ds.write_dataset(
-                table, base_dir=staged, format=parquet_format, file_options=options,
-                partitioning=partitioning, basename_template=f"batch-{batch:05d}-{{i}}.parquet",
-                existing_data_behavior="overwrite_or_ignore", max_rows_per_file=250_000,
+                table,
+                base_dir=staged,
+                format=parquet_format,
+                file_options=options,
+                partitioning=partitioning,
+                basename_template=f"batch-{batch:05d}-{{i}}.parquet",
+                existing_data_behavior="overwrite_or_ignore",
+                max_rows_per_file=250_000,
                 max_rows_per_group=64_000,
             )
             total_rows += len(frame)
@@ -116,10 +141,16 @@ def csv_to_parquet(csv_path, output_dir=None, *, kind, chunksize=500_000, overwr
         if total_rows == 0:
             raise ValueError("Input CSV has no records")
         manifest = {
-            "kind": kind, "source_csv": str(csv_path), "output_dir": str(destination),
-            "rows": total_rows, "first_timestamp": first_time.isoformat(),
-            "last_timestamp": last_time.isoformat(), "unavailable_speeds": unavailable if kind == "speeds" else None,
-            "timestamp_timezone": None, "partition_column": "date", "compression": "zstd",
+            "kind": kind,
+            "source_csv": str(csv_path),
+            "output_dir": str(destination),
+            "rows": total_rows,
+            "first_timestamp": first_time.isoformat(),
+            "last_timestamp": last_time.isoformat(),
+            "unavailable_speeds": unavailable if kind == "speeds" else None,
+            "timestamp_timezone": None,
+            "partition_column": "date",
+            "compression": "zstd",
             "parquet_files": len(list(staged.rglob("*.parquet"))),
         }
         (staged / "_conversion.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -134,18 +165,3 @@ def csv_to_parquet(csv_path, output_dir=None, *, kind, chunksize=500_000, overwr
                 backup.rename(destination)
             raise
     return manifest
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("csv_path", type=Path)
-    parser.add_argument("--kind", required=True, choices=["speeds", "crashes"])
-    parser.add_argument("--output-dir", type=Path)
-    parser.add_argument("--overwrite", action="store_true")
-    args = parser.parse_args()
-    result = csv_to_parquet(args.csv_path, args.output_dir, kind=args.kind, overwrite=args.overwrite)
-    print(json.dumps(result, indent=2))
-
-
-if __name__ == "__main__":
-    main()
