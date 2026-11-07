@@ -1,3 +1,38 @@
-# CausalInferenceTrafficPredictor
+# Chicago Traffic Accident Spillovers
 
-Investigating the utility of causal inference to predit and classify traffic incidents
+Estimate how crashes change traffic speeds on affected and neighboring roads over time. We compare non-graph models with spatiotemporal GNNs that forecast **no-accident** speeds, then evaluate estimated effects using matched controls and semi-synthetic ground truth.
+
+## Quickstart
+
+Requires Python 3.11–3.12 and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync
+uv run pytest -q
+uv run ruff check .
+uv run ruff format --check .
+```
+
+`uv sync` creates `.venv/` and `uv.lock`. Commit the lockfile after the first sync. The dataset, training, and evaluation CLI commands will be added as their roadmap PRs are implemented.
+
+## Layout
+
+- `src/traffic_gml/` — reusable data, graph, model, and evaluation code
+- `scripts/` — thin command-line entry points (added with features)
+- `tests/` — small, offline tests
+- `docs/` — architecture, data contracts, and methodology
+- `data/`, `outputs/` — local datasets and generated results; not committed
+- `PROJECT_ROADMAP.md` — sprint and PR plan
+
+## Documentation
+
+- [Architecture and interfaces](docs/architecture.md)
+- [Data sources and schemas](docs/data.md)
+- [Research methodology](docs/methodology.md)
+- [Guidelines for coding agents](AGENTS.md)
+
+## Research and paper
+
+Keep train/test event windows separate, and never use post-accident measurements as inputs to a no-accident forecast. Evaluate speed forecasts separately from estimated causal effects; real-world effect estimates require explicit assumptions and robustness checks.
+
+**Overleaf is the source of truth for the paper.** Any LaTeX in Git is a convenience copy.
