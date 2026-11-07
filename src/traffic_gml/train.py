@@ -107,7 +107,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     windows = parser.add_argument_group("windows")
     windows.add_argument("--history", type=int, default=12, help="input bins of 10 minutes")
     windows.add_argument("--horizon", type=int, default=6, help="predicted bins ahead")
-    windows.add_argument("--exposure-hops", type=int, default=1, help="crash masking radius")
+    windows.add_argument(
+        "--exposure-hops", type=int, default=2, help="crash masking radius, in graph hops"
+    )
     windows.add_argument("--stride", type=int, default=1, help="bins between window origins")
     windows.add_argument("--static-features", nargs="*", default=[])
 

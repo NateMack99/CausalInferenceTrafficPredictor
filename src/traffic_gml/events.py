@@ -281,7 +281,7 @@ def build_windows(
     tables: dict[str, pd.DataFrame],
     history: int = 12,
     horizon: int = 6,
-    exposure_hops: int = 1,
+    exposure_hops: int = 2,
     stride: int = 1,
     static_features: list[str] | tuple[str, ...] = (),
 ) -> tuple[dict[str, Windows], Tensor]:
