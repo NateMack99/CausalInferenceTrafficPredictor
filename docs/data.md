@@ -15,6 +15,19 @@
 - Keep an event ID for each crash and exclude overlapping events when required.
 - Split by time/event before fitting transformations to avoid leakage.
 
+## Processed tables
+
+Written by PR #1/#2 into `data/processed/`, read by `traffic_gml.events.load_tables`:
+
+| Table | Required columns |
+|---|---|
+| `speeds.parquet` | `segment_id`, `time`, `speed` |
+| `crashes.parquet` | `crash_record_id`, `crash_time`, `segment_id` |
+| `segments.parquet` | `segment_id`, plus optional `length`, `degree`, `betweenness` |
+| `edges.parquet` | `src`, `dst` |
+
+A missing speed must arrive as NaN — not the `-1` Chicago publishes, and not a zero. `time` is read as UTC even when tz-naive, so delivering local wall time puts every rush-hour feature hours out of phase. Crashes need a confident match to one segment; drop the rest upstream rather than guessing. An edge naming a segment absent from `segments.parquet` is dropped, while a segment with no speed rows is kept as a node with an all-missing series.
+
 ## Local paths
 
 - `data/raw/`: unchanged downloaded files.
