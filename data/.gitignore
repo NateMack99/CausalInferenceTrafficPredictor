@@ -1,5 +1,7 @@
-*.json
 *.csv
 *.graphml
 .env
 cache
+parquet/
+__pycache__/
+*.parquet
