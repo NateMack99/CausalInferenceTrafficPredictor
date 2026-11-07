@@ -11,5 +11,5 @@ curl --fail --show-error \
   --json @- \
   --output chicago-crashes.csv \
   'https://data.cityofchicago.org/api/v3/views/85ca-t3if/export.csv' <<'JSON'
-{"query":"SELECT * WHERE crash_date >= '2025-01-01T00:00:00' AND crash_date < '2026-01-01T00:00:00'"}
+{"query":"SELECT crash_date, crash_type, damage, street_no, street_direction, street_name WHERE crash_date >= '2025-01-01T00:00:00' AND crash_date < '2026-01-01T00:00:00'"}
 JSON
