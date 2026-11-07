@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+
+# Local data and generated results (see docs/data.md)
+data/*
+!data/*.sh
+outputs/
+
+# Credentials (the Socrata app token the data PR will need)
+.env
+.env.*
+*.key
+
+# Checkpoints, wherever --out points
+*.pt
+*.ckpt
