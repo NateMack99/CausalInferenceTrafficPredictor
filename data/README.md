@@ -33,6 +33,10 @@ Full fetching also saves `speed_roads.parquet` (edge-to-segment mapping),
 Rebuild them with `python data/prepare_roads.py`. Matching uses street names,
 direction, and a 40-meter corridor tolerance; coverage uses 144 nominal bins/day.
 
+Generated graphs, plots, and crash assignments go in `training/output/`. Earlier
+speed assignments and 80%/90% coverage lists are under
+`training/output/speed_sample/` and its `daily_coverage/` folder.
+
 ### Example
 Query a one-hour window with partition pruning:
 

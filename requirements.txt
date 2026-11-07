@@ -1,2 +1,9 @@
 osmnx
 matplotlib
+networkx
+numpy
+pandas
+pyproj
+geopandas
+shapely
+pyarrow
