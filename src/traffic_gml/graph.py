@@ -14,7 +14,7 @@ import pyarrow.dataset as ds
 from pyproj import Transformer
 
 DATA = Path(__file__).resolve().parents[2] / "data"
-OUTPUT = Path(__file__).resolve().parents[2] / "training/output"
+OUTPUT = Path(__file__).resolve().parents[2] / "outputs"
 EDGE_TYPES = {
     "segment_id": int,
     "coverage_fraction": float,

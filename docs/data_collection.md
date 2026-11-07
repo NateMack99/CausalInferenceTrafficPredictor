@@ -33,7 +33,7 @@ Full fetching also saves `speed_roads.parquet` (edge-to-segment mapping),
 Rebuild them with `uv run python scripts/prepare_roads.py`. Matching uses street names,
 direction, and a 40-meter corridor tolerance; coverage uses 144 nominal bins/day.
 
-Generated graphs, plots, and crash assignments go in `training/output/`.
+Generated graphs, plots, and crash assignments go in `outputs/`.
 The readable 80% coverage list is `data/dense_80pct_segments.csv`.
 
 ### Example

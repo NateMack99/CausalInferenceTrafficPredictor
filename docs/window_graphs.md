@@ -13,7 +13,7 @@ plot_graph(G)
 ```
 
 Windows are `[start, end)` in portal wall-clock time. GraphML, crash assignments,
-and the PNG go in `training/output/` with timestamps in their filenames.
+and the PNG go in `outputs/` with timestamps in their filenames.
 
 Fetching prepares the speed-road reference in `data/`; rebuild it with
 `uv run python scripts/prepare_roads.py`.
