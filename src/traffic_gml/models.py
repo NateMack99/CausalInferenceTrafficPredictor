@@ -1,7 +1,15 @@
-"""Non-graph speed prediction baselines.
+"""Non-graph baselines and basic graph forecasters.
 
 Every model returns ``y``'s shape, so training and metrics treat them
 interchangeably.
+
+``mlp`` has ``gcn``'s trunk and parameter shapes with no edges, so that pair
+differs only by the graph and not by capacity. ``sage`` has twice the
+per-layer parameters (separate root and neighbour weights), so read the graph
+effect off ``gcn`` against ``mlp``, not off ``sage``.
+
+PyTorch Geometric convolutions act on the second-to-last dimension, so a whole
+batch of window snapshots shares one ``edge_index`` and runs in a single call.
 """
 
 from __future__ import annotations
@@ -9,6 +17,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 from torch import Tensor, nn
+from torch_geometric.nn import GCNConv, SAGEConv
 
 from .events import WEEK_SLOTS, Windows
 
@@ -68,13 +77,51 @@ class HistoricalMean:
         return self.table[self.slot[bins]]
 
 
+class _NoGraph(nn.Linear):
+    """Stand-in for a convolution that ignores the edges."""
+
+    def forward(self, x: Tensor, edge_index: Tensor | None = None) -> Tensor:
+        return super().forward(x)
+
+
+class Forecaster(nn.Module):
+    """Per-road encoder over the flattened history, message passing, horizon head."""
+
+    def __init__(
+        self,
+        data: Windows,
+        hidden: int = 64,
+        layers: int = 2,
+        conv: type[nn.Module] = GCNConv,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        # +1 channel for the observation mask, so a gap is explicit to the model.
+        self.encoder = nn.Linear(data.history * (data.num_features + 1), hidden)
+        self.layers = nn.ModuleList(conv(hidden, hidden) for _ in range(layers))
+        self.dropout = nn.Dropout(dropout)
+        self.head = nn.Linear(hidden, data.horizon)
+
+    def forward(self, x: Tensor, x_mask: Tensor, edge_index: Tensor) -> Tensor:
+        batch, history, roads, _ = x.shape
+        features = torch.cat([x, x_mask.unsqueeze(-1).to(x.dtype)], dim=-1)
+        flat = features.permute(0, 2, 1, 3).reshape(batch, roads, -1)
+        h = torch.relu(self.encoder(flat))
+        for layer in self.layers:
+            h = h + self.dropout(torch.relu(layer(h, edge_index)))
+        return self.head(h).permute(0, 2, 1)
+
+
 BASELINES = {"persistence": Persistence, "historical_mean": HistoricalMean}
+CONVS = {"mlp": _NoGraph, "gcn": GCNConv, "sage": SAGEConv}
 
 
 def build_model(name: str, data: Windows, hidden: int = 64, layers: int = 2, dropout: float = 0.1):
     if name in BASELINES:
         return BASELINES[name](data)
-    raise ValueError(f"unknown model {name!r}; choose from {(*BASELINES,)}")
+    if name in CONVS:
+        return Forecaster(data, hidden, layers, CONVS[name], dropout)
+    raise ValueError(f"unknown model {name!r}; choose from {(*BASELINES, *CONVS)}")
 
 
 def predict(model, batch: dict[str, Tensor], edge_index: Tensor) -> Tensor:
