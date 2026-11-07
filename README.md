@@ -13,7 +13,16 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-`uv sync` creates `.venv/` and `uv.lock`. Commit the lockfile after the first sync. The dataset, training, and evaluation CLI commands will be added as their roadmap PRs are implemented.
+`uv sync` creates `.venv/` and `uv.lock`. Commit the lockfile after the first sync.
+
+Modeling (PR #3) runs without real data, on mock tables written in the processed schema:
+
+```bash
+uv run python scripts/make_mock_data.py --out data/mock
+uv run python scripts/run_experiment.py --data data/mock --model gcn --seed 42
+```
+
+Point `--data` at `data/processed` once PR #1 and PR #2 land. `--model` takes `persistence`, `historical_mean`, `mlp`, `gcn` or `sage`; see `--help` for the window, model and optimisation flags. Each run records its arguments and metrics under `outputs/`. The dataset and causal-evaluation CLI commands will be added as their roadmap PRs are implemented.
 
 ## Layout
 

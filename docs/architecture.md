@@ -17,7 +17,11 @@ Chicago crash + speed data → cleaned, aligned road observations → road graph
 
 Create modules only when their PR requires them. Scripts call these functions; no duplicate logic in scripts.
 
-## Shared model contract (proposed)
+### Status after PR #3
+
+`events.py` (crash-free windows only; PR #4 adds accident and control windows), `models.py`, `train.py` and `evaluate.py` (forecast metrics only; PR #9 adds effect metrics) exist in minimal form. `data.py` and `graph.py` are deliberately **not** created, so PR #3 adds nothing to the files PR #1 and PR #2 are writing this sprint; the four pieces it needed — `load_tables`, `align_grid`, `build_edge_index`, `neighbourhood` — sit in `events.py` behind a scope note and move out when those land. `mock.py` writes fixture tables so the models run meanwhile; it is not PR #8's `synthetic.py`, which injects known effects into *real* crash-free windows.
+
+## Shared model contract
 
 | Item | Representation |
 |---|---|
@@ -30,5 +34,9 @@ Create modules only when their PR requires them. Scripts call these functions; n
 | Events | Unique event ID, timestamp, road index, metadata |
 
 Pre-event features may include recent speeds, time-of-day, and static road features. A forecaster must not see post-event outcomes when predicting the no-accident scenario.
+
+PR #3 implements this, asserted in `tests/test_smoke.py`. A batch carries `x`, `x_mask`, `y`, `y_mask` and `origin` at the shapes above, `x` channels being `speed, tod_sin, tod_cos, dow_sin, dow_cos` then any static road columns. Speeds are normalised on crash-free training cells only, a missing speed is zero (the training mean) with a false mask, and a tz-naive `time` column is read as UTC with clock features derived in `America/Chicago`. The basic GNN flattens `history` into per-road features; the dimension stays separate so PR #6 can consume it directly.
+
+Three deliberate asymmetries: message passing uses `edge_index` **as given**, so it is directed, while crash contamination spreads **undirected**, over-reaching being the safe error when excluding training data; a crash is assumed to contaminate for `horizon` bins after it is reported, which is an assumption and not a measurement; and `--layers` message-passing rounds read `--layers` hops, so an `--exposure-hops` below that lets a road with crash-free targets still read a contaminated neighbour — `train.py` warns, and closing it costs about 7% of usable road-windows on the fixture.
 
 Freeze schema names and shapes before PRs #4–6; update this document if the implementation differs.
