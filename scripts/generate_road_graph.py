@@ -127,7 +127,7 @@ def _check_line_endings(files: list[Path]) -> None:
             raise ValueError(
                 f"{path} has Windows (CRLF) line endings, which this bash cannot run. "
                 f"Convert it, e.g.: dos2unix '{path}'  (or, in PowerShell: "
-                f"(Get-Content '{path}' -Raw) -replace \"`r`n\",\"`n\" | "
+                f'(Get-Content \'{path}\' -Raw) -replace "`r`n","`n" | '
                 f"Set-Content -NoNewline '{path}')"
             )
 
@@ -310,10 +310,7 @@ def generate_road_graph(
         data_dir=data_dir,
         output_dir=output_dir,
     )
-    print(
-        f"NetworkX graph: {graph.number_of_nodes():,} nodes, "
-        f"{graph.number_of_edges():,} edges"
-    )
+    print(f"NetworkX graph: {graph.number_of_nodes():,} nodes, {graph.number_of_edges():,} edges")
     print(graph.graph["output_path"])
     if segment_analysis:
         analyze(
@@ -337,16 +334,23 @@ def main() -> None:
         action="store_true",
         help="never download; convert/prepare local files, or fail with missing inputs",
     )
-    parser.add_argument("--refresh-data", action="store_true",
-                        help="rerun all of fetch_data.sh")
+    parser.add_argument("--refresh-data", action="store_true", help="rerun all of fetch_data.sh")
     parser.add_argument("--bash", help="path to bash (default: Git Bash on Windows)")
     parser.add_argument("--app-token", help="optional Chicago Data Portal app token")
-    parser.add_argument("--no-segment-analysis", action="store_true",
-                        help="skip the segment graph, centrality and map")
-    parser.add_argument("--betweenness-k", type=int, default=None,
-                        help="sample this many sources (default: exact up to 5,000 segments)")
-    parser.add_argument("--max-crash-points", type=int, default=5_000,
-                        help="crash markers drawn per map layer")
+    parser.add_argument(
+        "--no-segment-analysis",
+        action="store_true",
+        help="skip the segment graph, centrality and map",
+    )
+    parser.add_argument(
+        "--betweenness-k",
+        type=int,
+        default=None,
+        help="sample this many sources (default: exact up to 5,000 segments)",
+    )
+    parser.add_argument(
+        "--max-crash-points", type=int, default=5_000, help="crash markers drawn per map layer"
+    )
     parser.add_argument("--data-dir", type=Path, default=DATA)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT)
     args = parser.parse_args()
