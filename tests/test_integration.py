@@ -121,7 +121,8 @@ def test_effects_recover_the_injected_shock_and_controls_stay_flat(events):
     crash = effects(model, event, edge_index).groupby("minutes").effect.mean()
     flat = effects(model, control, edge_index).groupby("minutes").effect.mean()
 
-    # mock injects 8.0 mph decaying by 0.7 per bin on the crash road.
+    # mock injects 8.0 mph decaying by 0.7 per bin for 6 bins; crash_cells masks
+    # horizon + 1 of them, so at HORIZON=3 the last two bins do reach training.
     assert crash.iloc[0] < -5.0
     assert crash.is_monotonic_increasing  # the slowdown decays back toward zero
     assert abs(flat).max() < 0.5  # matched controls show no effect
