@@ -204,8 +204,16 @@ def make_map(
     fmap = folium.Map(
         location=[(south + north) / 2, (west + east) / 2],
         zoom_start=11,
-        tiles="OpenStreetMap",
     )
+    folium.TileLayer(
+        tiles=(
+            "https://server.arcgisonline.com/ArcGIS/rest/services/"
+            "World_Street_Map/MapServer/tile/{z}/{y}/{x}"
+        ),
+        name="Esri World Street Map",
+        attr="Tiles &copy; Esri &mdash; Sources: Esri, HERE, Garmin, USGS, NPS",
+        max_zoom=19,
+    ).add_to(fmap)
 
     vmax = max(float(edges["betweenness"].quantile(0.99)), 1e-12)
     cmap = cm.LinearColormap(

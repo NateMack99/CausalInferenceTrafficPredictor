@@ -13,20 +13,19 @@ the project's own helpers, in dependency order, skipping whatever already exists
 Then the road graph is built, followed by the segment graph, centrality, crash
 matching and map (traffic_gml.segments.analyze).
 
-fetch_data.sh reads CHICAGO_DATA_APP_TOKEN from data/.env (bash scripts/setup.sh
-creates it) and always writes to <project>/data.
+fetch_data.sh uses the public Chicago Data Portal endpoints without a token and
+optionally reads CHICAGO_DATA_APP_TOKEN from data/.env. It always writes to
+<project>/data.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import os
 import shutil
 import subprocess
 import sys
-from getpass import getpass
 from pathlib import Path
 
 import pandas as pd
@@ -148,43 +147,19 @@ def run_fetch_script(
             f"fetch_data.sh always writes to {project / 'data'}; use --data-dir to match it, "
             "or create the inputs yourself"
         )
-    env_file = data_dir / ".env"
-    if not env_file.is_file():
-        token = (
-            app_token
-            or os.environ.get("CHICAGO_DATA_APP_TOKEN")
-            or getpass("Chicago Data Portal app token (hidden): ").strip()
-        )
-        if not token:
-            raise ValueError("CHICAGO_DATA_APP_TOKEN is required to download Chicago data")
-        env_file.write_text(f"CHICAGO_DATA_APP_TOKEN={token}\n", encoding="utf-8")
-        with contextlib.suppress(OSError):
-            env_file.chmod(0o600)
-    elif app_token:
-        lines = env_file.read_text(encoding="utf-8").splitlines()
-        lines = [line for line in lines if not line.startswith("CHICAGO_DATA_APP_TOKEN=")]
-        lines.append(f"CHICAGO_DATA_APP_TOKEN={app_token}")
-        env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    else:
-        existing = os.environ.get("CHICAGO_DATA_APP_TOKEN", "")
-        if not existing:
-            for line in env_file.read_text(encoding="utf-8").splitlines():
-                if line.startswith("CHICAGO_DATA_APP_TOKEN="):
-                    existing = line.partition("=")[2].strip().strip("\"'")
-                    break
-        if not existing:
-            raise ValueError(
-                f"{env_file} does not contain CHICAGO_DATA_APP_TOKEN. Create it with "
-                "CHICAGO_DATA_APP_TOKEN=<your token>, set the environment variable, "
-                "or pass --app-token."
-            )
     windows = os.name == "nt"
     if not windows:
-        _check_line_endings([FETCH_SCRIPT, env_file])
+        files = [FETCH_SCRIPT]
+        env_file = data_dir / ".env"
+        if env_file.is_file():
+            files.append(env_file)
+        _check_line_endings(files)
     command = _fetch_command(_find_bash(bash), FETCH_SCRIPT, args, windows)
     print("Running: " + " ".join(command[1:]))
     # PYTHON_PATH is how fetch_data.sh is told which interpreter (and venv) to use.
     env = {**os.environ, "PYTHON_PATH": Path(sys.executable).as_posix()}
+    if app_token:
+        env["CHICAGO_DATA_APP_TOKEN"] = app_token
     result = subprocess.run(command, cwd=project, env=env)
     if result.returncode:
         raise RuntimeError(f"fetch_data.sh exited with code {result.returncode}")
@@ -365,7 +340,7 @@ def main() -> None:
     parser.add_argument("--refresh-data", action="store_true",
                         help="rerun all of fetch_data.sh")
     parser.add_argument("--bash", help="path to bash (default: Git Bash on Windows)")
-    parser.add_argument("--app-token", help="Chicago Data Portal app token")
+    parser.add_argument("--app-token", help="optional Chicago Data Portal app token")
     parser.add_argument("--no-segment-analysis", action="store_true",
                         help="skip the segment graph, centrality and map")
     parser.add_argument("--betweenness-k", type=int, default=None,
