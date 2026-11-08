@@ -31,7 +31,7 @@ from traffic_gml.evaluate import (
 )
 from traffic_gml.events import build_windows, event_datasets, processed_tables, write_processed
 from traffic_gml.models import BASELINES, CONVS, build_model
-from traffic_gml.train import fit, set_seed
+from traffic_gml.train import DEFAULTS, fit, set_seed
 
 MODELS = (*BASELINES, *CONVS)
 
@@ -52,9 +52,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--exposure-hops", type=int, default=2)
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument("--static-features", nargs="*", default=[])
-    parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--patience", type=int, default=4)
-    parser.add_argument("--hidden", type=int, default=64)
+    parser.add_argument("--epochs", type=int, default=DEFAULTS["epochs"])
+    parser.add_argument("--patience", type=int, default=DEFAULTS["patience"])
+    parser.add_argument("--hidden", type=int, default=DEFAULTS["hidden"])
     parser.add_argument("--controls", type=int, default=1, help="controls per crash")
     parser.add_argument("--effect-model", default="gcn", choices=MODELS)
     parser.add_argument("--seed", type=int, default=42)

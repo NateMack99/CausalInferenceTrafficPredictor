@@ -98,6 +98,10 @@ def fit(
     return history
 
 
+#: Shared with `scripts/midpoint.py` so both entry points train the same thing.
+DEFAULTS = {"epochs": 30, "lr": 1e-3, "batch_size": 64, "patience": 5, "hidden": 64}
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train one no-accident speed forecaster.")
     parser.add_argument("--data", type=Path, default=Path("data/processed"))
@@ -115,17 +119,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     windows.add_argument("--static-features", nargs="*", default=[])
 
     model = parser.add_argument_group("model")
-    model.add_argument("--hidden", type=int, default=64)
+    model.add_argument("--hidden", type=int, default=DEFAULTS["hidden"])
     model.add_argument("--layers", type=int, default=2)
     model.add_argument("--dropout", type=float, default=0.1)
 
     optimisation = parser.add_argument_group("optimisation")
     optimisation.add_argument("--loss", default="mae", choices=sorted(LOSSES))
-    optimisation.add_argument("--epochs", type=int, default=30)
+    optimisation.add_argument("--epochs", type=int, default=DEFAULTS["epochs"])
     optimisation.add_argument("--lr", type=float, default=1e-3)
     optimisation.add_argument("--weight-decay", type=float, default=1e-4)
-    optimisation.add_argument("--batch-size", type=int, default=64)
-    optimisation.add_argument("--patience", type=int, default=5)
+    optimisation.add_argument("--batch-size", type=int, default=DEFAULTS["batch_size"])
+    optimisation.add_argument("--patience", type=int, default=DEFAULTS["patience"])
     return parser.parse_args(argv)
 
 
