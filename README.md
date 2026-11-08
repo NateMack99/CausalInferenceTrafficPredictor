@@ -16,7 +16,7 @@ and optionally downloads and prepares the data.
 Modeling runs without real data, on mock tables written in the processed schema:
 
 ```bash
-uv run python scripts/make_mock_data.py --out data/mock
+uv run python -m traffic_gml.mock --out data/mock
 uv run python -m traffic_gml.train --data data/mock --model gcn --seed 42
 ```
 
@@ -25,7 +25,7 @@ Point `--data` at `data/processed` once the collection and graph steps have run.
 ## Layout
 
 - `src/traffic_gml/` — reusable data, graph, model, and evaluation code
-- `scripts/` — thin command-line entry points (added with features)
+- `scripts/` — command-line entry points for collection, the road graph, and the midpoint run
 - `tests/` — small, offline tests
 - `docs/` — architecture, data contracts, and methodology
 - `data/`, `outputs/` — local datasets and generated results; not committed
