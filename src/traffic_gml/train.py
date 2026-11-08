@@ -20,8 +20,9 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
 
+from .data import LOCAL_TZ, load_tables, local_time
 from .evaluate import LOSSES, evaluate, masked_loss
-from .events import LOCAL_TZ, Windows, build_windows, load_tables, local_time
+from .events import Windows, build_windows
 from .models import BASELINES, CONVS, build_model, predict
 
 

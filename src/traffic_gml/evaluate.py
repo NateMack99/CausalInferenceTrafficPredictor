@@ -11,7 +11,8 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
 
-from .events import BIN_MINUTES, Windows
+from .data import BIN_MINUTES
+from .events import Windows
 from .models import predict
 
 

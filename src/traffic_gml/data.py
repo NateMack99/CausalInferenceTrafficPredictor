@@ -1,4 +1,7 @@
-"""Convert a Chicago CSV to a typed, date-partitioned Parquet dataset.
+"""Retrieve, clean and align the Chicago speed and crash tables.
+
+`csv_to_parquet` converts a portal CSV to a date-partitioned Parquet dataset.
+`load_tables` and `align_grid` read the processed tables the models consume.
 
 Example: uv run python scripts/convert_to_parquet.py data/chicago-speeds.csv --kind speeds
 """
@@ -14,6 +17,64 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
+
+FREQ = "10min"
+BIN_MINUTES = 10
+#: Bins are stored in UTC per `docs/data.md`; rush hour is local.
+LOCAL_TZ = "America/Chicago"
+#: Required columns of the processed tables, per `docs/data.md`.
+TABLES: dict[str, tuple[str, ...]] = {
+    "speeds": ("segment_id", "time", "speed"),
+    "crashes": ("crash_record_id", "crash_time", "segment_id"),
+    "segments": ("segment_id",),
+    "edges": ("src", "dst"),
+}
+
+
+def load_tables(path: str | Path) -> dict[str, pd.DataFrame]:
+    tables: dict[str, pd.DataFrame] = {}
+    for name, columns in TABLES.items():
+        file = Path(path) / f"{name}.parquet"
+        if not file.exists():
+            raise FileNotFoundError(
+                f"{file} not found. Point --data at data/processed, or write mock "
+                f"tables with scripts/make_mock_data.py."
+            )
+        tables[name] = pd.read_parquet(file)
+        missing = [c for c in columns if c not in tables[name].columns]
+        if missing:
+            raise ValueError(f"{file} is missing columns {missing}")
+    return tables
+
+
+def align_grid(
+    speeds: pd.DataFrame, segment_ids: np.ndarray
+) -> tuple[np.ndarray, pd.DatetimeIndex]:
+    """Speeds on a gap-free grid: `[bins, roads]` in mph, NaN where missing."""
+    frame = speeds[["segment_id", "time", "speed"]].copy()
+    frame["time"] = pd.to_datetime(frame["time"]).dt.floor(FREQ)
+    frame["speed"] = frame["speed"].astype("float32").where(frame["speed"] >= 0)
+    times = pd.date_range(frame["time"].min(), frame["time"].max(), freq=FREQ)
+    wide = (
+        frame.groupby(["time", "segment_id"])["speed"]
+        .mean()
+        .unstack("segment_id")
+        .reindex(index=times, columns=segment_ids)
+    )
+    return wide.to_numpy("float32", copy=True), times
+
+
+def local_time(times: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """Bins in local time. Naive input is taken as UTC, per `docs/data.md`.
+
+    Getting this wrong puts every clock feature hours out of phase, so the run
+    summary prints the local span it inferred.
+    """
+    utc = times.tz_localize("UTC") if times.tz is None else times
+    return utc.tz_convert(LOCAL_TZ)
+
+
+
 
 
 def _timestamps(values: pd.Series) -> pd.Series:

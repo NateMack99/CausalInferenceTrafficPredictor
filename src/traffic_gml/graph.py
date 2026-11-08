@@ -11,7 +11,10 @@ import numpy as np
 import osmnx as ox
 import pandas as pd
 import pyarrow.dataset as ds
+import scipy.sparse as sp
+import torch
 from pyproj import Transformer
+from torch import Tensor
 
 DATA = Path(__file__).resolve().parents[2] / "data"
 OUTPUT = Path(__file__).resolve().parents[2] / "outputs"
@@ -147,3 +150,33 @@ def build_graph(
     ox.save_graphml(graph, filepath=path)
     audit.to_parquet(path.with_name(path.stem + "_crashes.parquet"), index=False)
     return graph
+
+
+def build_edge_index(edges: pd.DataFrame, segment_ids: np.ndarray) -> Tensor:
+    """`[2, edges]` in node-index order; unknown segments and self loops dropped."""
+    node = {segment: index for index, segment in enumerate(segment_ids)}
+    pairs = {
+        (node[src], node[dst])
+        for src, dst in zip(edges["src"], edges["dst"], strict=True)
+        if src in node and dst in node and src != dst
+    }
+    if not pairs:
+        return torch.zeros((2, 0), dtype=torch.long)
+    return torch.tensor(sorted(pairs), dtype=torch.long).t().contiguous()
+
+
+def neighbourhood(edge_index: Tensor, num_roads: int, hops: int) -> sp.csr_matrix:
+    """Boolean `[roads, roads]` reachability within `hops` undirected hops.
+
+    Undirected and inclusive of self: this decides which roads a crash
+    contaminates, where over-reaching is the safe direction to err.
+    """
+    adjacency = sp.csr_matrix(
+        (np.ones(edge_index.size(1), dtype=bool), (edge_index[0].numpy(), edge_index[1].numpy())),
+        shape=(num_roads, num_roads),
+    )
+    both = (adjacency + adjacency.T).astype(bool)
+    reach = sp.identity(num_roads, dtype=bool, format="csr")
+    for _ in range(hops):
+        reach = (reach + reach @ both).astype(bool)
+    return reach

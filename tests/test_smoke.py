@@ -14,7 +14,8 @@ import torch
 from torch.utils.data import DataLoader
 
 from traffic_gml import train
-from traffic_gml.events import FEATURES, FREQ, align_grid, build_windows, clock_features
+from traffic_gml.data import FREQ, align_grid
+from traffic_gml.events import FEATURES, build_windows, clock_features
 from traffic_gml.mock import make_mock
 from traffic_gml.models import BASELINES, CONVS, build_model, predict
 

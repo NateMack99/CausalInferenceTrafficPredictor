@@ -1,9 +1,7 @@
 """Model inputs and prediction targets: crash-free forecasting windows.
 
-PR #4 owns the full accident and matched-control construction; this is the
-crash-free slice PR #3 needs. Table loading, speed alignment and
-`build_edge_index` belong in `data.py`/`graph.py` and live here only so PR #3
-touches neither file while PR #1 and PR #2 are being written.
+Table loading and speed alignment live in `data.py`, graph tensors in
+`graph.py`; this module turns them into the windows the models are fed.
 
 `docs/architecture.md` owns the batch shapes and the asymmetries behind them.
 The rule it leaves to the code: a crash contaminates its own road and every
@@ -16,8 +14,6 @@ the very counterfactual it is measured against.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -25,94 +21,13 @@ import torch
 from torch import Tensor
 from torch.utils.data import Dataset
 
-FREQ = "10min"
-BIN_MINUTES = 10
+from .data import BIN_MINUTES, FREQ, align_grid, local_time
+from .graph import build_edge_index, neighbourhood
+
 BINS_PER_DAY = 24 * 60 // BIN_MINUTES
 WEEK_SLOTS = 7 * BINS_PER_DAY
-#: Bins are stored in UTC per `docs/data.md`; rush hour is local.
-LOCAL_TZ = "America/Chicago"
 #: Per-bin feature channels, before any static road columns.
 FEATURES = ("speed", "tod_sin", "tod_cos", "dow_sin", "dow_cos")
-#: Required columns of the processed tables, per `docs/data.md`.
-TABLES: dict[str, tuple[str, ...]] = {
-    "speeds": ("segment_id", "time", "speed"),
-    "crashes": ("crash_record_id", "crash_time", "segment_id"),
-    "segments": ("segment_id",),
-    "edges": ("src", "dst"),
-}
-
-
-def load_tables(path: str | Path) -> dict[str, pd.DataFrame]:
-    tables: dict[str, pd.DataFrame] = {}
-    for name, columns in TABLES.items():
-        file = Path(path) / f"{name}.parquet"
-        if not file.exists():
-            raise FileNotFoundError(
-                f"{file} not found. Point --data at data/processed, or write mock "
-                f"tables with scripts/make_mock_data.py."
-            )
-        tables[name] = pd.read_parquet(file)
-        missing = [c for c in columns if c not in tables[name].columns]
-        if missing:
-            raise ValueError(f"{file} is missing columns {missing}")
-    return tables
-
-
-def align_grid(
-    speeds: pd.DataFrame, segment_ids: np.ndarray
-) -> tuple[np.ndarray, pd.DatetimeIndex]:
-    """Speeds on a gap-free grid: `[bins, roads]` in mph, NaN where missing."""
-    frame = speeds[["segment_id", "time", "speed"]].copy()
-    frame["time"] = pd.to_datetime(frame["time"]).dt.floor(FREQ)
-    frame["speed"] = frame["speed"].astype("float32").where(frame["speed"] >= 0)
-    times = pd.date_range(frame["time"].min(), frame["time"].max(), freq=FREQ)
-    wide = (
-        frame.groupby(["time", "segment_id"])["speed"]
-        .mean()
-        .unstack("segment_id")
-        .reindex(index=times, columns=segment_ids)
-    )
-    return wide.to_numpy("float32", copy=True), times
-
-
-def build_edge_index(edges: pd.DataFrame, segment_ids: np.ndarray) -> Tensor:
-    """`[2, edges]` in node-index order; unknown segments and self loops dropped."""
-    node = {segment: index for index, segment in enumerate(segment_ids)}
-    pairs = {
-        (node[src], node[dst])
-        for src, dst in zip(edges["src"], edges["dst"], strict=True)
-        if src in node and dst in node and src != dst
-    }
-    if not pairs:
-        return torch.zeros((2, 0), dtype=torch.long)
-    return torch.tensor(sorted(pairs), dtype=torch.long).t().contiguous()
-
-
-def neighbourhood(edge_index: Tensor, num_roads: int, hops: int) -> sp.csr_matrix:
-    """Boolean `[roads, roads]` reachability within `hops` undirected hops.
-
-    Undirected and inclusive of self: this decides which roads a crash
-    contaminates, where over-reaching is the safe direction to err.
-    """
-    adjacency = sp.csr_matrix(
-        (np.ones(edge_index.size(1), dtype=bool), (edge_index[0].numpy(), edge_index[1].numpy())),
-        shape=(num_roads, num_roads),
-    )
-    both = (adjacency + adjacency.T).astype(bool)
-    reach = sp.identity(num_roads, dtype=bool, format="csr")
-    for _ in range(hops):
-        reach = (reach + reach @ both).astype(bool)
-    return reach
-
-
-def local_time(times: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    """Bins in local time. Naive input is taken as UTC, per `docs/data.md`.
-
-    Getting this wrong puts every clock feature hours out of phase, so the run
-    summary prints the local span it inferred.
-    """
-    utc = times.tz_localize("UTC") if times.tz is None else times
-    return utc.tz_convert(LOCAL_TZ)
 
 
 def clock_features(times: pd.DatetimeIndex) -> np.ndarray:

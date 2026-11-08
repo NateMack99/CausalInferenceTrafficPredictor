@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .events import FREQ, local_time
+from .data import FREQ, local_time
 
 
 def make_mock(
