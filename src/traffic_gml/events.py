@@ -76,12 +76,14 @@ def processed_tables(
     crashes = pd.read_csv(crash_csv)
     crashes = crashes.loc[crashes["match_status"] == "matched"].copy()
     crashes["crash_time"] = pd.to_datetime(crashes["timestamp"])
+    crashes = crashes.loc[crashes["segment_id"].notna()]
     crashes["segment_id"] = crashes["segment_id"].astype("int64")
     crashes = crashes.loc[crashes["segment_id"].isin(keep)]
     if window is not None:
-        start, end = (pd.Timestamp(edge) for edge in window)
-        inside = crashes["crash_time"].between(start, end, inclusive="left")
-        crashes = crashes.loc[inside]
+        # Upper bound only: contamination runs forward, so a crash just before
+        # the window still touches the first bins, and `crash_cells` clips any
+        # whose wake lands entirely outside.
+        crashes = crashes.loc[crashes["crash_time"] < pd.Timestamp(window[1])]
 
     tables = {
         "speeds": speeds.loc[speeds["segment_id"].isin(keep)].reset_index(drop=True),
@@ -333,7 +335,8 @@ def crash_index(
     to a neighbour: `searchsorted` alone returns the insertion point, so segment
     25 against roads [10, 20, 30, 40] would come back as road 30 and the effect
     would be measured on a road that never had the crash. A `NaT` crash time
-    must not become bin 0 either.
+    must not become bin 0 either. A crash *before* the grid keeps its negative
+    bin, so `crash_cells` can still mask the part of its wake that lands inside.
     """
     when = pd.to_datetime(crashes["crash_time"]).dt.floor(FREQ)
     dated = when.notna().to_numpy()
@@ -341,7 +344,7 @@ def crash_index(
     bins[dated] = (when[dated] - times[0]) // pd.Timedelta(FREQ)
     road_of = crashes["segment_id"].to_numpy()
     roads = np.minimum(np.searchsorted(segment_ids, road_of), len(segment_ids) - 1)
-    on_grid = (segment_ids[roads] == road_of) & (bins >= 0) & (bins < len(times))
+    on_grid = (segment_ids[roads] == road_of) & dated & (bins < len(times))
     return bins, roads, on_grid
 
 
@@ -361,7 +364,7 @@ def crash_cells(
     lasts = np.arange(horizon + 1)
     rows = (bins[on_grid][:, None] + lasts).ravel()
     cols = np.repeat(roads[on_grid], lasts.size)
-    inside = rows < len(times)
+    inside = (rows >= 0) & (rows < len(times))
     hit = sp.csr_matrix(
         (np.ones(int(inside.sum()), dtype=bool), (rows[inside], cols[inside])),
         shape=(len(times), len(segment_ids)),
