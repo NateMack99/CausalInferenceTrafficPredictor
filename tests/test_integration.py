@@ -81,15 +81,13 @@ def test_join_filters_to_matched_crashes_and_observed_roads(pipeline):
     assert tables["crashes"].segment_id.tolist() == [20]
     assert tables["segments"].columns.str.contains("betweenness").any()
 
-
-def test_join_window_bounds_are_half_open(pipeline):
-    speeds_dir, graphml, crash_csv = pipeline
-    tables = processed_tables(
+    # [start, end) on both the partition filter and the timestamp filter.
+    windowed = processed_tables(
         speeds_dir, graphml, crash_csv, window=("2025-03-01 00:00", "2025-03-01 02:00")
     )
-    assert tables["speeds"].time.min() == pd.Timestamp("2025-03-01 00:00")
-    assert tables["speeds"].time.max() == pd.Timestamp("2025-03-01 01:50")
-    assert tables["crashes"].empty  # crash A is at bin 100, outside this window
+    assert windowed["speeds"].time.min() == pd.Timestamp("2025-03-01 00:00")
+    assert windowed["speeds"].time.max() == pd.Timestamp("2025-03-01 01:50")
+    assert windowed["crashes"].empty
 
 
 @pytest.fixture(scope="module")

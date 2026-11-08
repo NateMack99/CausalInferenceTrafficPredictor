@@ -224,22 +224,15 @@ Estimate how traffic accidents change road speeds **on the affected road and on 
 | **Nov 30 – Dec 7** | Project presentation |
 | **Dec 9** | Final ACM-format paper and reproducible repository |
 
-The **paper and presentation are shared responsibilities**, not separate code PRs. **Overleaf is the source of truth for LaTeX**; the Git repository may include a convenience copy without maintaining two independent versions.
+The **paper and presentation are shared responsibilities**, not separate code PRs. **Overleaf is the source of truth for LaTeX**; the Git repository may include a convenience copy.
 
 ## Integration & PR conventions
 
 - **One PR per meaningful deliverable.** The 12 PRs are a planning target, not a strict limit; split a PR if it becomes too large or blocks the team.
 - **Integrate continuously.** Do not wait until the end of a sprint to merge compatible work.
-- **Agree on interfaces early:** road IDs, timestamps, graph node indices, event IDs, observation masks, and train/validation/test splits.
-- **Use the same data splits and metrics** for fair comparisons across models.
-- **Each PR should include** a runnable entry point or example, a small test where practical, and a short description of its outputs.
-- **Keep the code lean:** reuse the existing `src/traffic_gml/` package and scripts rather than creating a framework for every experiment.
 - **Prioritize PR #8 early** if the event-window format stabilizes ahead of schedule. The semi-synthetic benchmark is central to the mentor's feedback.
+- Everything else about how a PR is written and checked lives in [AGENTS.md](AGENTS.md).
 
 ## Research checks
 
-- **Forecasting objective:** Train the no-accident predictor on accident-free windows using an MSE or MAE speed forecasting loss.
-- **Effect estimator:** For each road and post-event time, estimate the speed effect as observed minus predicted no-accident speed (negative values mean slowing).
-- **Core comparison:** Non-graph vs. basic message-passing GNN vs. spatiotemporal GNN, using consistent inputs and splits.
-- **Ground-truth validation:** Use semi-synthetic effects to measure **effect estimation error**, which is distinct from speed prediction error.
-- **Causal caution:** Good forecasts and semi-synthetic recovery do not alone prove unbiased real-world accident effects. Use matching, pre-trend checks, placebo tests, and sensitivity analyses to support claims.
+See [methodology.md](docs/methodology.md) for the forecasting objective, the effect estimator, the core comparison, ground-truth validation, and the causal caveats.

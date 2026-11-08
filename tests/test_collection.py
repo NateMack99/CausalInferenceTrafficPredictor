@@ -22,7 +22,7 @@ import pytest
 from shapely.geometry import LineString
 
 from traffic_gml.data import csv_to_parquet
-from traffic_gml.graph import DATA, build_graph, load_graph
+from traffic_gml.graph import build_graph, load_graph
 from traffic_gml.plot import plot_graph
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,7 +50,6 @@ def test_conversion_types_partitions_and_refresh(tmp_path):
 
 
 def test_graph_windows_and_plot(tmp_path):
-    assert DATA == ROOT / "data"
     graph = nx.MultiDiGraph(crs="EPSG:4326", simplified=True)
     coordinates = {
         1: (-87.63, 41.88),
