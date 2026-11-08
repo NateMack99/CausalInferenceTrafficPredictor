@@ -80,7 +80,7 @@ def make_mock(
         "segments": pd.DataFrame(
             {
                 "segment_id": ids,
-                "length": np.linspace(0.2, 0.6, ids.size).astype("float32"),
+                "length_m": np.linspace(120.0, 400.0, ids.size).astype("float32"),
                 "degree": np.array([len(neighbours[i]) for i in range(ids.size)], dtype="int64"),
             }
         ),

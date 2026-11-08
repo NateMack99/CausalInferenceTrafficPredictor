@@ -20,7 +20,7 @@ from traffic_gml.mock import make_mock
 from traffic_gml.models import BASELINES, CONVS, build_model, predict
 
 HISTORY, HORIZON = 6, 3
-STATIC = ["length", "degree"]
+STATIC = ["length_m", "degree"]
 
 
 @pytest.fixture(scope="module")
