@@ -14,26 +14,34 @@ Chicago crash + speed data → cleaned, aligned road observations → road graph
 - `causal.py`: counterfactual estimates and matched causal baselines.
 - `synthetic.py`: inject known disruptions into real crash-free windows.
 - `evaluate.py`: prediction metrics, treatment-effect metrics, and plots.
+- `roads.py`: provision raw inputs; download the street network; build the speed-observed
+  road reference.
+- `segments.py`: segment graph, centrality, crash-to-segment matching, and the map.
+- `plot.py`: window-graph congestion figures.
+- `mock.py`: fixture tables in the processed schema, for development only.
 
 Create modules only when their PR requires them. Scripts call these functions; no duplicate logic in scripts.
 
 ### Status
 
-Six of the eight listed modules exist; `causal.py` and `synthetic.py` are not written. `roads.py`, `segments.py` and `plot.py` are not in the list above but hold the collection and mapping logic. `data.py` retrieves, cleans and aligns; `graph.py` builds connectivity and the PyG `edge_index`; `events.py` joins the three streams (`processed_tables`) and builds crash-free training windows plus crash/control event windows; `models.py`, `train.py` and `evaluate.py` cover forecasting, optimisation and metrics. `evaluate.py` also holds the crash-effect estimate and the report figures.
+Ten of the twelve listed modules exist; `causal.py` and `synthetic.py` are not written. `data.py` retrieves, cleans and aligns; `graph.py` builds connectivity and the PyG `edge_index`; `events.py` joins the three streams (`processed_tables`) and builds crash-free training windows plus crash/control event windows; `models.py`, `train.py` and `evaluate.py` cover forecasting, optimisation and metrics. `evaluate.py` also holds the crash-effect estimate and the report figures.
 
 `mock.py` writes fixture tables so the models run without the portal. It is not PR #8's `synthetic.py`, which injects known effects into *real* crash-free windows.
 
 ## Shared model contract
 
-| Item | Representation |
+Left column is the name the course brief uses; right column is what the code calls it.
+
+| Contract | In this repo |
 |---|---|
-| Road index | Stable ID mapped to a fixed integer index |
-| Time | Naive local (America/Chicago), aligned to 10-minute bins |
-| Inputs `x` | `[batch, history, roads, features]` |
-| Future targets `y` | `[batch, horizon, roads]` |
-| Missing observations | Boolean mask with the same time/road dimensions |
-| Road graph | PyG `edge_index` shaped `[2, edges]` |
-| Events | Unique event ID, timestamp, road index, metadata |
+| `road_ids` | `np.sort(segments.segment_id.unique())`; its position is the road index used by every tensor and by `edge_index` |
+| `edge_index` | PyG `[2, edges]`, built by `graph.build_edge_index`, directed **as given** |
+| `x` | `[batch, history, roads, features]`, batch key `x` |
+| `y` | `[batch, horizon, roads]`, batch key `y` |
+| `mask` | batch keys `x_mask` and `y_mask`, each matching its tensor's time/road axes |
+| `event_id` | `crashes.crash_record_id` |
+| `event_time` | `crashes.crash_time`, naive local, floored to a 10-minute bin |
+| Time | Naive local (America/Chicago), aligned to 10-minute bins (`FREQ`) |
 
 Pre-event features may include recent speeds, time-of-day, and static road features. A forecaster must not see post-event outcomes when predicting the no-accident scenario.
 

@@ -20,6 +20,16 @@ uv run python -m traffic_gml.mock --out data/mock
 uv run python -m traffic_gml.train --data data/mock --model gcn --seed 42
 ```
 
+On real data, build the road graph first, then run the pipeline:
+
+```bash
+uv run python scripts/build_graph.py --no-fetch \
+    --crash-window 2025-03-01 2025-05-01 --speed-window 2025-03-01 2025-05-01
+uv run python scripts/midpoint.py --speeds data/parquet/chicago-speeds \
+    --graph outputs/<stem>_segments.graphml --crashes outputs/<stem>_crash_segments.csv \
+    --window 2025-03-01 2025-05-01 --static-features length_m degree betweenness
+```
+
 Point `--data` at `data/processed` once the collection and graph steps have run. `--model` takes `persistence`, `historical_mean`, `mlp`, `gcn` or `sage`; see `--help` for the window, model and optimisation flags. Each run records its arguments and metrics under `outputs/`. `scripts/midpoint.py` runs the whole pipeline: it joins the speed, crash and road-graph outputs into those tables, trains every model on identical splits, estimates crash effects against matched accident-free controls, and writes the figures and `results.csv` under `outputs/midpoint/`.
 
 ## Layout
