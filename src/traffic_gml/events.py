@@ -113,79 +113,90 @@ def event_datasets(
     segment_ids: np.ndarray,
     controls: int = 1,
     seed: int = 0,
-) -> tuple[pd.DataFrame, Windows, Windows]:
+) -> tuple[pd.DataFrame, pd.DataFrame, Windows, Windows]:
     """Before/after windows for each matched crash, plus accident-free controls.
 
     The event origin is the last bin before the crash, so `x` is entirely
-    pre-crash and `y` spans the crash itself. Each control is the same road at
-    the same slot of the week in a different week, with a crash-free lag and
-    target span. Only the crash's own road is unmasked, so a window scores that
-    road and nothing else.
+    pre-crash and `y` spans the crash itself. Only the crash's own road is
+    unmasked, so a window scores that road and nothing else.
 
-    `reference` supplies the grid, the crash mask and the training statistics,
-    so events are normalised exactly as training was.
+    Both arms are held to the same standard, which is what makes the control a
+    placebo rather than a flattering one:
+
+    - a control is the same road at the same slot of the week in another week,
+      crash-free across its whole span, **and never a window the model trained
+      on**. Otherwise the control arm reports in-sample residuals against the
+      event arm's out-of-sample ones, and part of the gap between them is just
+      the model fitting its own training data.
+    - an event's pre-crash lag must be crash-free too, so an earlier crash on
+      the same road cannot depress the history the forecast is made from.
+
+    Returns one row per crash, one row per (crash, control) pair, and the two
+    window sets. The event set holds one window per crash: repeating it once
+    per control would shrink the intervals without adding any information.
     """
     history, horizon = reference.history, reference.horizon
     values, clean = reference.values.numpy(), reference.clean.numpy()
     slot = reference.slot.numpy()
     n_bins = values.shape[0]
     times = reference.times
+    if len(segment_ids) != reference.num_roads:
+        raise ValueError("segment_ids does not match the grid these windows were built on")
+
+    trained = np.zeros(values.shape, dtype=bool)
+    trained[reference.origins.numpy()] = reference.usable.numpy()
 
     bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)
 
-    rows, event_origins, control_origins = [], [], []
+    events, pairs = [], []
     for record, crash_bin, road, known in zip(
         crashes["crash_record_id"], bins, roads, on_grid, strict=True
     ):
         origin = int(crash_bin) - 1
         if not known or origin - history + 1 < 0 or origin + horizon >= n_bins:
             continue
-        span = slice(origin - history + 1, origin + 1)
-        if not np.isfinite(values[span, road]).any():
-            continue  # no pre-crash history to forecast from
+        lag = slice(origin - history + 1, origin + 1)
+        if not clean[lag, road].all() or not np.isfinite(values[lag, road]).any():
+            continue
 
-        same_slot = np.flatnonzero(slot == slot[origin])
-        ok = [
+        usable_controls = [
             int(t)
-            for t in same_slot
-            if abs(t - origin) >= horizon + 1
+            for t in np.flatnonzero(slot == slot[origin])
+            if abs(t - origin) >= history + horizon
             and t - history + 1 >= 0
             and t + horizon < n_bins
+            and not trained[t, road]
             and clean[t - history + 1 : t + horizon + 1, road].all()
             and np.isfinite(values[t + 1 : t + 1 + horizon, road]).any()
         ]
-        if not ok:
+        if not usable_controls:
             continue
-        picked = rng.choice(ok, size=min(controls, len(ok)), replace=False)
-        for control in np.atleast_1d(picked):
-            rows.append(
-                {
-                    "crash_record_id": record,
-                    "segment_id": int(segment_ids[road]),
-                    "road": int(road),
-                    "crash_bin": int(crash_bin),
-                    "crash_time": times[int(crash_bin)],
-                    "event_origin": origin,
-                    "control_origin": int(control),
-                }
-            )
-            event_origins.append(origin)
-            control_origins.append(int(control))
 
-    table = pd.DataFrame(rows)
+        shared = {
+            "crash_record_id": record,
+            "segment_id": int(segment_ids[road]),
+            "road": int(road),
+        }
+        events.append({**shared, "crash_time": times[int(crash_bin)], "origin": origin})
+        chosen = rng.choice(
+            usable_controls, size=min(controls, len(usable_controls)), replace=False
+        )
+        pairs += [{**shared, "origin": int(t)} for t in np.atleast_1d(chosen)]
+
+    table, control_table = pd.DataFrame(events), pd.DataFrame(pairs)
     if table.empty:
         raise ValueError(
-            "no crash has both a usable pre-crash history and a crash-free control; "
+            "no crash has both a crash-free pre-crash history and a held-out control; "
             "widen the speed window or lower --history/--horizon"
         )
-    only = np.zeros((len(table), reference.num_roads), dtype=bool)
-    only[np.arange(len(table)), table["road"].to_numpy()] = True
-    return (
-        table,
-        reference.at(np.asarray(event_origins), only),
-        reference.at(np.asarray(control_origins), only),
-    )
+
+    def windows(frame: pd.DataFrame) -> Windows:
+        only = np.zeros((len(frame), reference.num_roads), dtype=bool)
+        only[np.arange(len(frame)), frame["road"].to_numpy()] = True
+        return reference.at(frame["origin"].to_numpy(), only)
+
+    return table, control_table, windows(table), windows(control_table)
 
 
 def clock_features(times: pd.DatetimeIndex) -> np.ndarray:

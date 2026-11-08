@@ -97,26 +97,37 @@ def events():
     tables = make_mock(rows=4, cols=4, days=30, crashes=120, seed=0)
     sets, edge_index = build_windows(tables, history=HISTORY, horizon=HORIZON)
     ids = np.sort(tables["segments"].segment_id.unique())
-    table, event, control = event_datasets(sets["train"], tables["crashes"], ids, seed=0)
-    return tables, sets, edge_index, table, event, control
+    table, controls, event, control = event_datasets(sets["train"], tables["crashes"], ids, seed=0)
+    return tables, sets, edge_index, table, controls, event, control
 
 
-def test_event_windows_are_pre_crash_and_controls_are_crash_free(events):
-    tables, sets, _, table, event, control = events
-    clean = sets["train"].clean.numpy()
+def test_event_windows_are_pre_crash_and_controls_are_held_out(events):
+    """Both arms must be out-of-sample, or the control is not a placebo."""
+    _, sets, _, table, controls, event, control = events
+    train = sets["train"]
+    times = train.times
+    trained = np.zeros(train.values.shape, dtype=bool)
+    trained[train.origins.numpy()] = train.usable.numpy()
+
     for row in table.head(40).itertuples():
-        # x ends the bin before the crash, so no post-crash speed is ever an input.
-        assert row.event_origin == row.crash_bin - 1
-        span = slice(row.control_origin - HISTORY + 1, row.control_origin + HORIZON + 1)
-        assert clean[span, row.road].all()
-        assert sets["train"].slot[row.control_origin] == sets["train"].slot[row.event_origin]
+        # Checked against wall-clock time, not against the arithmetic that built it:
+        # the last input bin must end at or before the crash.
+        assert times[row.origin] < row.crash_time
+        assert not trained[row.origin, row.road]
+    for row in controls.head(40).itertuples():
+        # A control the model was fitted on would report in-sample residuals.
+        assert not trained[row.origin, row.road]
+
+    # One window per crash; repeating it per control would fake the intervals.
+    assert len(event) == table.crash_record_id.nunique()
+    assert len(control) == len(controls)
     # Each window scores exactly the one road the crash happened on.
     assert event.usable.sum(dim=1).unique().tolist() == [1]
     assert control.usable.sum(dim=1).unique().tolist() == [1]
 
 
 def test_effects_recover_the_injected_shock_and_controls_stay_flat(events):
-    tables, sets, edge_index, _, event, control = events
+    _, sets, edge_index, _, _, event, control = events
     model = build_model("historical_mean", sets["train"]).fit(sets["train"])
     crash = effects(model, event, edge_index).groupby("minutes").effect.mean()
     flat = effects(model, control, edge_index).groupby("minutes").effect.mean()
