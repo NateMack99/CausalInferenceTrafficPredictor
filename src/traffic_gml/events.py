@@ -105,6 +105,89 @@ def write_processed(tables: dict[str, pd.DataFrame], out: str | Path) -> Path:
     return out
 
 
+def event_datasets(
+    reference: Windows,
+    crashes: pd.DataFrame,
+    segment_ids: np.ndarray,
+    controls: int = 1,
+    seed: int = 0,
+) -> tuple[pd.DataFrame, Windows, Windows]:
+    """Before/after windows for each matched crash, plus accident-free controls.
+
+    The event origin is the last bin before the crash, so `x` is entirely
+    pre-crash and `y` spans the crash itself. Each control is the same road at
+    the same slot of the week in a different week, with a crash-free lag and
+    target span. Only the crash's own road is unmasked, so a window scores that
+    road and nothing else.
+
+    `reference` supplies the grid, the crash mask and the training statistics,
+    so events are normalised exactly as training was.
+    """
+    history, horizon = reference.history, reference.horizon
+    values, clean = reference.values.numpy(), reference.clean.numpy()
+    slot = reference.slot.numpy()
+    n_bins = values.shape[0]
+    times = reference.times
+
+    bins = np.asarray(
+        (pd.to_datetime(crashes["crash_time"]).dt.floor(FREQ) - times[0]) // pd.Timedelta(FREQ),
+        dtype=np.int64,
+    )
+    roads = np.searchsorted(segment_ids, crashes["segment_id"].to_numpy())
+    rng = np.random.default_rng(seed)
+
+    rows, event_origins, control_origins = [], [], []
+    for record, crash_bin, road in zip(crashes["crash_record_id"], bins, roads, strict=True):
+        origin = int(crash_bin) - 1
+        if road >= len(segment_ids) or origin - history + 1 < 0 or origin + horizon >= n_bins:
+            continue
+        span = slice(origin - history + 1, origin + 1)
+        if not np.isfinite(values[span, road]).any():
+            continue  # no pre-crash history to forecast from
+
+        same_slot = np.flatnonzero(slot == slot[origin])
+        ok = [
+            int(t)
+            for t in same_slot
+            if abs(t - origin) >= horizon + 1
+            and t - history + 1 >= 0
+            and t + horizon < n_bins
+            and clean[t - history + 1 : t + horizon + 1, road].all()
+            and np.isfinite(values[t + 1 : t + 1 + horizon, road]).any()
+        ]
+        if not ok:
+            continue
+        picked = rng.choice(ok, size=min(controls, len(ok)), replace=False)
+        for control in np.atleast_1d(picked):
+            rows.append(
+                {
+                    "crash_record_id": record,
+                    "segment_id": int(segment_ids[road]),
+                    "road": int(road),
+                    "crash_bin": int(crash_bin),
+                    "crash_time": times[int(crash_bin)],
+                    "event_origin": origin,
+                    "control_origin": int(control),
+                }
+            )
+            event_origins.append(origin)
+            control_origins.append(int(control))
+
+    table = pd.DataFrame(rows)
+    if table.empty:
+        raise ValueError(
+            "no crash has both a usable pre-crash history and a crash-free control; "
+            "widen the speed window or lower --history/--horizon"
+        )
+    only = np.zeros((len(table), reference.num_roads), dtype=bool)
+    only[np.arange(len(table)), table["road"].to_numpy()] = True
+    return (
+        table,
+        reference.at(np.asarray(event_origins), only),
+        reference.at(np.asarray(control_origins), only),
+    )
+
+
 def clock_features(times: pd.DatetimeIndex) -> np.ndarray:
     """Cyclic time-of-day and day-of-week in local time, `[bins, 4]`."""
     local = local_time(times)
@@ -161,6 +244,13 @@ class Windows(Dataset):
         self.mean, self.std = norm
         self.num_roads = values.shape[1]
         self.num_features = len(FEATURES) + static.shape[1]
+
+    def at(self, origins: np.ndarray, usable: np.ndarray) -> Windows:
+        """Same grid and statistics, different windows — for event/control sets."""
+        other = copy.copy(self)
+        other.origins = torch.from_numpy(np.asarray(origins, dtype=np.int64))
+        other.usable = torch.from_numpy(np.asarray(usable, dtype=bool))
+        return other
 
     def encode(self, speed):  # Tensor or ndarray, both used
         return (speed - self.mean) / self.std
