@@ -47,6 +47,33 @@ def load_tables(path: str | Path) -> dict[str, pd.DataFrame]:
     return tables
 
 
+def load_speed_dataset(path: str | Path, window: tuple[str, str] | None = None) -> pd.DataFrame:
+    """Read the date-partitioned speeds dataset into the long `speeds` table.
+
+    Returns `segment_id`, `time`, `speed`, with an unavailable speed as null.
+    `window` is `(start, end)` with `end` excluded, in the dataset's own naive
+    local time; the `date` partition is filtered too so whole days are pruned
+    before any file is opened.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found; run bash scripts/fetch_data.sh first")
+    dataset = ds.dataset(path, format="parquet", partitioning="hive")
+    selection = None
+    if window is not None:
+        start, end = (pd.Timestamp(edge) for edge in window)
+        if start.tzinfo or end.tzinfo or start >= end:
+            raise ValueError("use a nonempty [start, end) window of naive timestamps")
+        selection = (
+            (ds.field("date") >= start.date().isoformat())
+            & (ds.field("date") <= end.date().isoformat())
+            & (ds.field("timestamp") >= start.to_pydatetime())
+            & (ds.field("timestamp") < end.to_pydatetime())
+        )
+    table = dataset.to_table(columns=["segment_id", "timestamp", "speed"], filter=selection)
+    return table.to_pandas().rename(columns={"timestamp": "time"})
+
+
 def align_grid(
     speeds: pd.DataFrame, segment_ids: np.ndarray
 ) -> tuple[np.ndarray, pd.DatetimeIndex]:

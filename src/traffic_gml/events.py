@@ -14,6 +14,10 @@ the very counterfactual it is measured against.
 
 from __future__ import annotations
 
+import copy
+from pathlib import Path
+
+import networkx as nx
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -21,13 +25,84 @@ import torch
 from torch import Tensor
 from torch.utils.data import Dataset
 
-from .data import BIN_MINUTES, FREQ, align_grid, local_time
+from .data import BIN_MINUTES, FREQ, TABLES, align_grid, load_speed_dataset, local_time
 from .graph import build_edge_index, neighbourhood
 
 BINS_PER_DAY = 24 * 60 // BIN_MINUTES
 WEEK_SLOTS = 7 * BINS_PER_DAY
 #: Per-bin feature channels, before any static road columns.
 FEATURES = ("speed", "tod_sin", "tod_cos", "dow_sin", "dow_cos")
+
+
+def processed_tables(
+    speeds_dir: str | Path,
+    segment_graphml: str | Path,
+    crash_csv: str | Path,
+    window: tuple[str, str] | None = None,
+) -> dict[str, pd.DataFrame]:
+    """Join the speed, crash and road-graph outputs into the model contract.
+
+    `segment_graphml` and `crash_csv` are what `segments.analyze` writes beside
+    the road graph. Three judgement calls, all of them narrowing:
+
+    - only crashes with `match_status == "matched"` become events, since an
+      unmatched crash has no road to attribute a slowdown to;
+    - only crashes inside the speed window are kept, because a crash outside it
+      cannot contaminate any window built from these speeds;
+    - only segments with an observed speed in the window become nodes, so the
+      dense `[bins, roads]` grid is not mostly empty columns. Edges to a dropped
+      segment go with it, which removes paths that ran through unobserved road.
+    """
+    speeds = load_speed_dataset(speeds_dir, window)
+    observed = speeds.loc[speeds["speed"].notna(), "segment_id"].unique()
+
+    graph = nx.read_graphml(segment_graphml, node_type=int)
+    keep = sorted(set(observed) & set(graph.nodes))
+    if not keep:
+        raise ValueError("no segment has both an observed speed and a node in the road graph")
+    graph = graph.subgraph(keep)
+
+    segments = pd.DataFrame.from_dict(dict(graph.nodes(data=True)), orient="index")
+    segments.index.name = "segment_id"
+    segments = segments.reset_index()
+
+    # The segment graph is undirected, so emit both directions: PyG message
+    # passing follows edge_index as given, and one direction would starve half
+    # the neighbourhood.
+    both = {(int(u), int(v)) for u, v in graph.edges()}
+    both |= {(v, u) for u, v in both}
+    edges = pd.DataFrame(sorted(both), columns=["src", "dst"])
+
+    crashes = pd.read_csv(crash_csv)
+    crashes = crashes.loc[crashes["match_status"] == "matched"].copy()
+    crashes["crash_time"] = pd.to_datetime(crashes["timestamp"])
+    crashes["segment_id"] = crashes["segment_id"].astype("int64")
+    crashes = crashes.loc[crashes["segment_id"].isin(keep)]
+    if window is not None:
+        start, end = (pd.Timestamp(edge) for edge in window)
+        inside = crashes["crash_time"].between(start, end, inclusive="left")
+        crashes = crashes.loc[inside]
+
+    tables = {
+        "speeds": speeds.loc[speeds["segment_id"].isin(keep)].reset_index(drop=True),
+        "crashes": crashes[list(TABLES["crashes"])].reset_index(drop=True),
+        "segments": segments,
+        "edges": edges,
+    }
+    for name, columns in TABLES.items():
+        missing = [c for c in columns if c not in tables[name].columns]
+        if missing:
+            raise ValueError(f"joined {name} table is missing {missing}")
+    return tables
+
+
+def write_processed(tables: dict[str, pd.DataFrame], out: str | Path) -> Path:
+    """Write the four contract tables so `--data` can point at them."""
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    for name, table in tables.items():
+        table.to_parquet(out / f"{name}.parquet", index=False)
+    return out
 
 
 def clock_features(times: pd.DatetimeIndex) -> np.ndarray:
