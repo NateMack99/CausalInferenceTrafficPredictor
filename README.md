@@ -13,14 +13,14 @@ bash scripts/setup.sh
 Setup creates `.venv` with uv if needed, syncs the locked Python environment, verifies your Chicago portal token,
 and optionally downloads and prepares the data.
 
-Modeling (PR #3) runs without real data, on mock tables written in the processed schema:
+Modeling runs without real data, on mock tables written in the processed schema:
 
 ```bash
 uv run python scripts/make_mock_data.py --out data/mock
 uv run python scripts/run_experiment.py --data data/mock --model gcn --seed 42
 ```
 
-Point `--data` at `data/processed` once PR #1 and PR #2 land. `--model` takes `persistence`, `historical_mean`, `mlp`, `gcn` or `sage`; see `--help` for the window, model and optimisation flags. Each run records its arguments and metrics under `outputs/`. The dataset and causal-evaluation CLI commands will be added as their roadmap PRs are implemented.
+Point `--data` at `data/processed` once the collection and graph steps have run. `--model` takes `persistence`, `historical_mean`, `mlp`, `gcn` or `sage`; see `--help` for the window, model and optimisation flags. Each run records its arguments and metrics under `outputs/`. `scripts/midpoint.py` runs the whole pipeline: it joins the speed, crash and road-graph outputs into those tables, trains every model on identical splits, estimates crash effects against matched accident-free controls, and writes the figures and `results.csv` under `outputs/midpoint/`.
 
 ## Layout
 

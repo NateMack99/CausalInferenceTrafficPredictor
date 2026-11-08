@@ -17,13 +17,13 @@
 
 ## Processed tables
 
-Written by PR #1/#2 into `data/processed/`, read by `traffic_gml.events.load_tables`:
+Built by `events.processed_tables` from the collection and graph outputs, written to `data/processed/` by `events.write_processed`, and read back by `traffic_gml.data.load_tables`:
 
 | Table | Required columns |
 |---|---|
 | `speeds.parquet` | `segment_id`, `time`, `speed` |
 | `crashes.parquet` | `crash_record_id`, `crash_time`, `segment_id` |
-| `segments.parquet` | `segment_id`, plus optional `length`, `degree`, `betweenness` |
+| `segments.parquet` | `segment_id`, plus optional `length_m`, `degree`, `betweenness`, `speed_mph` |
 | `edges.parquet` | `src`, `dst` |
 
 A missing speed must arrive as NaN — not the `-1` Chicago publishes, and not a zero. `time` is read as naive local, matching what `csv_to_parquet` writes; handing over UTC wall-clock instead would put every rush-hour feature hours out of phase. Crashes need a confident match to one segment; drop the rest upstream rather than guessing. An edge naming a segment absent from `segments.parquet` is dropped, while a segment with no speed rows is kept as a node with an all-missing series.
