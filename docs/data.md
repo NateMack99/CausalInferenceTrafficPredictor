@@ -9,7 +9,7 @@
 ## Conventions
 
 - Use one stable road-segment ID across speed data, graph nodes, and crashes.
-- Convert input timestamps to UTC; retain original local timestamps when needed for validation.
+- Keep the portal's naive local timestamps end to end. Rush hour is a local phenomenon, and `local_time` treats a naive column as already local; only tz-aware input is converted.
 - Use 10-minute bins; record binning and matching tolerances.
 - Store speeds in mph, with an explicit missing-observation mask.
 - Keep an event ID for each crash and exclude overlapping events when required.
@@ -26,7 +26,7 @@ Written by PR #1/#2 into `data/processed/`, read by `traffic_gml.events.load_tab
 | `segments.parquet` | `segment_id`, plus optional `length`, `degree`, `betweenness` |
 | `edges.parquet` | `src`, `dst` |
 
-A missing speed must arrive as NaN — not the `-1` Chicago publishes, and not a zero. `time` is read as UTC even when tz-naive, so delivering local wall time puts every rush-hour feature hours out of phase. Crashes need a confident match to one segment; drop the rest upstream rather than guessing. An edge naming a segment absent from `segments.parquet` is dropped, while a segment with no speed rows is kept as a node with an all-missing series.
+A missing speed must arrive as NaN — not the `-1` Chicago publishes, and not a zero. `time` is read as naive local, matching what `csv_to_parquet` writes; handing over UTC wall-clock instead would put every rush-hour feature hours out of phase. Crashes need a confident match to one segment; drop the rest upstream rather than guessing. An edge naming a segment absent from `segments.parquet` is dropped, while a segment with no speed rows is kept as a node with an all-missing series.
 
 ## Local paths
 
@@ -41,6 +41,7 @@ These directories are excluded from Git. Document download commands, source date
 Run `bash scripts/setup.sh` to sync dependencies, configure the portal token, and
 optionally fetch data. See [collection commands](data_collection.md) and
 [window graph previews](window_graphs.md). The partitioned files in `data/parquet/`
-retain portal wall-clock timestamps; they are staging data, **not** the UTC
-`data/processed/` model contract above. Window GraphML files describe OSM road
+retain portal wall-clock timestamps; they are staging data, **not** the
+`data/processed/` model contract above, which `events.processed_tables` builds
+from them. Window GraphML files describe OSM road
 edges and are not yet the road-as-node PyG representation used by the models.
