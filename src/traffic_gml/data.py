@@ -38,7 +38,7 @@ def load_tables(path: str | Path) -> dict[str, pd.DataFrame]:
         if not file.exists():
             raise FileNotFoundError(
                 f"{file} not found. Point --data at data/processed, or write mock "
-                f"tables with scripts/make_mock_data.py."
+                f"tables with: uv run python -m traffic_gml.mock --out {Path(path)}"
             )
         tables[name] = pd.read_parquet(file)
         missing = [c for c in columns if c not in tables[name].columns]
