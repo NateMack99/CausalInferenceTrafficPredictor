@@ -129,17 +129,15 @@ def event_datasets(
     n_bins = values.shape[0]
     times = reference.times
 
-    bins = np.asarray(
-        (pd.to_datetime(crashes["crash_time"]).dt.floor(FREQ) - times[0]) // pd.Timedelta(FREQ),
-        dtype=np.int64,
-    )
-    roads = np.searchsorted(segment_ids, crashes["segment_id"].to_numpy())
+    bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)
 
     rows, event_origins, control_origins = [], [], []
-    for record, crash_bin, road in zip(crashes["crash_record_id"], bins, roads, strict=True):
+    for record, crash_bin, road, known in zip(
+        crashes["crash_record_id"], bins, roads, on_grid, strict=True
+    ):
         origin = int(crash_bin) - 1
-        if road >= len(segment_ids) or origin - history + 1 < 0 or origin + horizon >= n_bins:
+        if not known or origin - history + 1 < 0 or origin + horizon >= n_bins:
             continue
         span = slice(origin - history + 1, origin + 1)
         if not np.isfinite(values[span, road]).any():
@@ -326,6 +324,27 @@ def split_windows(count: int, fracs: tuple[float, float, float], gap: int) -> di
     return splits
 
 
+def crash_index(
+    crashes: pd.DataFrame, times: pd.DatetimeIndex, segment_ids: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Each crash's (bin, road), and a mask of the ones that land on this grid.
+
+    A crash on a segment that is not a road here has to be rejected, not snapped
+    to a neighbour: `searchsorted` alone returns the insertion point, so segment
+    25 against roads [10, 20, 30, 40] would come back as road 30 and the effect
+    would be measured on a road that never had the crash. A `NaT` crash time
+    must not become bin 0 either.
+    """
+    when = pd.to_datetime(crashes["crash_time"]).dt.floor(FREQ)
+    dated = when.notna().to_numpy()
+    bins = np.full(len(when), -1, dtype=np.int64)
+    bins[dated] = (when[dated] - times[0]) // pd.Timedelta(FREQ)
+    road_of = crashes["segment_id"].to_numpy()
+    roads = np.minimum(np.searchsorted(segment_ids, road_of), len(segment_ids) - 1)
+    on_grid = (segment_ids[roads] == road_of) & (bins >= 0) & (bins < len(times))
+    return bins, roads, on_grid
+
+
 def crash_cells(
     crashes: pd.DataFrame,
     times: pd.DatetimeIndex,
@@ -338,14 +357,7 @@ def crash_cells(
     graph and `horizon` bins forward. Rows with no usable time or segment are
     ignored -- a `NaT` must not become a crash at bin 0.
     """
-    when = pd.to_datetime(crashes["crash_time"]).dt.floor(FREQ)
-    dated = when.notna().to_numpy()
-    bins = np.full(len(when), -1, dtype=np.int64)
-    bins[dated] = (when[dated] - times[0]) // pd.Timedelta(FREQ)
-    road_of = crashes["segment_id"].to_numpy()
-    roads = np.minimum(np.searchsorted(segment_ids, road_of), len(segment_ids) - 1)
-    on_grid = (segment_ids[roads] == road_of) & (bins >= 0) & (bins < len(times))
-
+    bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     lasts = np.arange(horizon + 1)
     rows = (bins[on_grid][:, None] + lasts).ravel()
     cols = np.repeat(roads[on_grid], lasts.size)
