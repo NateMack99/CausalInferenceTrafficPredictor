@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader
 from .data import LOCAL_TZ, load_tables, local_time
 from .evaluate import LOSSES, evaluate, masked_loss
 from .events import Windows, build_windows
-from .models import BASELINES, CONVS, build_model, predict
+from .models import BASELINES, CONVS, build_model, on_device, predict, resolve_device
 
 
 def data_version(tables: dict, path: Path) -> dict:
@@ -51,6 +51,7 @@ def fit(
     weight_decay: float = 1e-4,
     batch_size: int = 64,
     patience: int = 5,
+    device: str = "cpu",
     verbose: bool = True,
 ) -> list[dict]:
     """Train a forecaster, or fit a baseline, on the training split."""
@@ -58,6 +59,9 @@ def fit(
         model.fit(sets["train"])
         return []
 
+    where = resolve_device(device)
+    model.to(where)
+    edge_index = edge_index.to(where)
     power = LOSSES[loss_name]
     # Losses are computed on normalised speeds; rescale to mph (mph^2 for mse).
     scale = sets["train"].std ** (2 if loss_name == "mse" else 1)
@@ -69,13 +73,14 @@ def fit(
         model.train()
         losses = []
         for batch in loader:
+            batch = on_device(batch, where)
             out = predict(model, batch, edge_index)
             loss = masked_loss(out, batch["y"], batch["y_mask"], power)
             optimiser.zero_grad(set_to_none=True)
             loss.backward()
             optimiser.step()
             losses.append(float(loss.detach()))
-        val = evaluate(model, sets["val"], edge_index, batch_size)
+        val = evaluate(model, sets["val"], edge_index, batch_size, device)
         train_loss = float(np.mean(losses)) * scale
         history.append(
             {"epoch": epoch, f"train_{loss_name}": round(train_loss, 4)}
@@ -84,7 +89,8 @@ def fit(
         if verbose:
             print(
                 f"epoch {epoch:3d}  train {loss_name.upper()} {train_loss:7.3f} {unit}"
-                f"  val MAE {val['mae']:6.3f} mph"
+                f"  val MAE {val['mae']:6.3f} mph",
+                flush=True,
             )
         if val["mae"] < best - 1e-5:
             best, best_epoch = val["mae"], epoch
@@ -130,6 +136,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     optimisation.add_argument("--weight-decay", type=float, default=1e-4)
     optimisation.add_argument("--batch-size", type=int, default=DEFAULTS["batch_size"])
     optimisation.add_argument("--patience", type=int, default=DEFAULTS["patience"])
+    optimisation.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "auto", "cuda", "mps"],
+        help="auto picks cuda, then mps, then cpu",
+    )
     return parser.parse_args(argv)
 
 
@@ -171,9 +183,11 @@ def main(argv: list[str] | None = None) -> dict:
         weight_decay=args.weight_decay,
         batch_size=args.batch_size,
         patience=args.patience,
+        device=args.device,
     )
     metrics = {
-        name: evaluate(model, data, edge_index, args.batch_size) for name, data in sets.items()
+        name: evaluate(model, data, edge_index, args.batch_size, args.device)
+        for name, data in sets.items()
     }
     for name, values in metrics.items():
         print(f"{name:>5s}  MAE {values['mae']:6.3f} mph  RMSE {values['rmse']:6.3f} mph")
