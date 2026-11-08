@@ -20,8 +20,9 @@ import matplotlib.pyplot as plt  # noqa: E402  -- after the Agg backend is set
 from torch.utils.data import DataLoader
 
 from .data import BIN_MINUTES
-from .events import Windows
-from .models import predict
+from .events import Windows, crash_index
+from .graph import neighbourhood
+from .models import on_device, predict, resolve_device
 
 
 def masked_error(pred: Tensor, y: Tensor, mask: Tensor) -> Tensor:
@@ -42,17 +43,23 @@ LOSSES = {"mae": 1, "mse": 2}
 
 
 @torch.no_grad()
-def evaluate(model, data: Windows, edge_index: Tensor, batch_size: int = 64) -> dict:
+def evaluate(
+    model, data: Windows, edge_index: Tensor, batch_size: int = 64, device: str = "cpu"
+) -> dict:
     """Forecast MAE and RMSE in mph, overall and per horizon step."""
+    where = resolve_device(device) if isinstance(model, torch.nn.Module) else torch.device("cpu")
     if isinstance(model, torch.nn.Module):
-        model.eval()
+        model.eval().to(where)
+    edge_index = edge_index.to(where)
     absolute, square, count = (torch.zeros(data.horizon, dtype=torch.float64) for _ in range(3))
     for batch in DataLoader(data, batch_size=batch_size):
-        out, y = predict(model, batch, edge_index).double(), batch["y"].double()
-        error = masked_error(out, y, batch["y_mask"]) * data.std
+        batch = on_device(batch, where)
+        out = predict(model, batch, edge_index)
+        # Accumulate in float64 on the CPU: MPS has no float64 at all.
+        error = (masked_error(out, batch["y"], batch["y_mask"]) * data.std).cpu().double()
         absolute += error.abs().sum(dim=(0, 2))
         square += error.pow(2).sum(dim=(0, 2))
-        count += batch["y_mask"].sum(dim=(0, 2))
+        count += batch["y_mask"].cpu().sum(dim=(0, 2))
     total = count.sum()
     if not total:
         raise ValueError(
@@ -73,18 +80,24 @@ def evaluate(model, data: Windows, edge_index: Tensor, batch_size: int = 64) -> 
 
 
 @torch.no_grad()
-def effects(model, data: Windows, edge_index: Tensor, batch_size: int = 64) -> pd.DataFrame:
+def effects(
+    model, data: Windows, edge_index: Tensor, batch_size: int = 64, device: str = "cpu"
+) -> pd.DataFrame:
     """Observed minus predicted no-accident speed, per window, road and step.
 
     Negative means slower than the counterfactual. One row per unmasked target,
     with `effect` and `observed` in mph. Forecast accuracy alone does not make
     this causal: `docs/methodology.md` sets out what else has to hold.
     """
+    run_on = resolve_device(device) if isinstance(model, torch.nn.Module) else torch.device("cpu")
     if isinstance(model, torch.nn.Module):
-        model.eval()
+        model.eval().to(run_on)
+    edge_index = edge_index.to(run_on)
     frames = []
     for batch in DataLoader(data, batch_size=batch_size):
-        prediction = predict(model, batch, edge_index)
+        batch = on_device(batch, run_on)
+        prediction = predict(model, batch, edge_index).cpu()
+        batch = {k: v.cpu() if hasattr(v, "cpu") else v for k, v in batch.items()}
         mask = batch["y_mask"]
         where = mask.nonzero()
         frames.append(
@@ -193,4 +206,192 @@ def effect_figure(event: pd.DataFrame, control: pd.DataFrame, path: str | Path) 
     axis.set_xlabel("minutes after the crash (bin end)", color=MUTED, fontsize=9)
     axis.set_ylabel("observed − predicted (mph)", color=MUTED, fontsize=9)
     axis.legend(frameon=False, labelcolor=INK, fontsize=9)
+    return _save(figure, path)
+
+
+def placebo_corrected(event: pd.DataFrame, control: pd.DataFrame) -> pd.DataFrame:
+    """Crash arm minus matched-control arm, per horizon bin, with a 95% interval.
+
+    This is the estimate the proposal defines: the control arm is not a second
+    finding, it is the forecaster's own bias on windows where nothing happened,
+    and it has to be subtracted rather than displayed beside the crash arm.
+    The interval is event-level only while each crash contributes one row per
+    bin; add clustering before trusting it with neighbour roads in play.
+    """
+    rows = []
+    for minutes in sorted(event.minutes.unique()):
+        a = event.loc[event.minutes == minutes, "effect"]
+        b = control.loc[control.minutes == minutes, "effect"]
+        effect = a.mean() - b.mean()
+        spread = 1.96 * float(np.hypot(a.sem(), b.sem()))
+        rows.append(
+            {
+                "minutes": int(minutes),
+                "crash": round(a.mean(), 3),
+                "control": round(b.mean(), 3),
+                "effect": round(effect, 3),
+                "low": round(effect - spread, 3),
+                "high": round(effect + spread, 3),
+                "n": int(len(a)),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def coverage_funnel(
+    audit: pd.DataFrame,
+    data: Windows,
+    segment_ids: np.ndarray,
+    edge_index: Tensor,
+) -> pd.DataFrame:
+    """How many crashes survive each filter, with retention at every stage.
+
+    A large raw crash table does not mean a usable event study. The last two
+    rows are the ones that decide feasibility: whether a matched crash has an
+    unbroken speed history around it, and whether its connected roads were
+    observed at all -- without that, no spillover can be measured.
+
+    Every stage is counted from `audit`, the full crash table that
+    `segments.analyze` writes with a `match_status` per row. Counting the later
+    stages from the joined `crashes` table instead would mix two populations:
+    that table is already filtered to matched crashes, so a funnel built from
+    both would report more survivors than the stage above it.
+    """
+    matched = audit.loc[audit["match_status"] == "matched"].copy()
+    when = matched["crash_time"] if "crash_time" in matched else matched["timestamp"]
+    matched["crash_time"] = pd.to_datetime(when)
+    matched = matched.loc[matched["segment_id"].notna()]
+    matched["segment_id"] = matched["segment_id"].astype("int64")
+
+    observed = np.isfinite(data.values.numpy())
+    history, horizon = data.history, data.horizon
+    reach = neighbourhood(edge_index, len(segment_ids), 1)
+
+    bins, roads, on_grid = crash_index(matched, data.times, segment_ids)
+    in_grid = complete = with_neighbours = 0
+    for crash_bin, road, known in zip(bins, roads, on_grid, strict=True):
+        origin = int(crash_bin) - 1
+        if not known or origin - history + 1 < 0 or origin + horizon >= len(data.times):
+            continue
+        in_grid += 1
+        pre = observed[origin - history + 1 : origin + 1, road]
+        post = observed[origin + 1 : origin + 1 + horizon, road]
+        if not (pre.all() and post.all()):
+            continue
+        complete += 1
+        others = [n for n in reach[road].indices if n != road]
+        if others and observed[origin + 1 : origin + 1 + horizon, others].any():
+            with_neighbours += 1
+
+    stages = [
+        ("crashes in the study period", len(audit)),
+        ("with usable coordinates", int((audit.match_status != "invalid_coordinates").sum())),
+        ("matched to a monitored segment", len(matched)),
+        ("on a segment with speed data, window fits", in_grid),
+        ("every pre and post bin observed", complete),
+        ("and a connected road observed too", with_neighbours),
+    ]
+    first = stages[0][1] or 1
+    return pd.DataFrame(
+        [
+            {
+                "stage": name,
+                "crashes": count,
+                "retained_pct": round(100 * count / first, 1),
+                "step_pct": round(100 * count / (stages[i - 1][1] or 1), 1) if i else 100.0,
+            }
+            for i, (name, count) in enumerate(stages)
+        ]
+    )
+
+
+def grid_coverage(data: Windows) -> float:
+    """Fraction of the `[bins, roads]` speed grid that was actually observed."""
+    return float(np.isfinite(data.values.numpy()).mean())
+
+
+def trajectory_figure(
+    data: Windows,
+    events: pd.DataFrame,
+    controls: pd.DataFrame,
+    path: str | Path,
+    count: int = 3,
+) -> Path:
+    """Observed speed around real crashes, against each one's matched control.
+
+    Panels are the earliest fully observed crash windows, in time order -- not
+    the deepest dips. Ranking by the size of the drop would manufacture the
+    result this figure is meant to be neutral about, and ranking by how many
+    bins happen to be observed just picks the busiest road. The last panel
+    averages every fully observed event, and is the only panel with enough
+    windows behind it to read a shape off.
+
+    This shows that crashes align with speed histories. A dip is not an effect
+    estimate: rush hour, weather or an earlier incident could produce the same
+    picture, which is what the counterfactual model is for.
+    """
+    values = data.values.numpy()
+    history, horizon = data.history, data.horizon
+    span = np.arange(-history + 1, horizon + 1) * BIN_MINUTES
+
+    def trace(origin: int, road: int) -> np.ndarray:
+        return values[origin - history + 1 : origin + 1 + horizon, road]
+
+    first_control = controls.groupby("crash_record_id", as_index=False).origin.first()
+    paired = events.merge(first_control, on="crash_record_id", suffixes=("", "_control"))
+    if paired.empty:
+        raise ValueError("no crash has a matched control to plot against")
+    complete = [np.isfinite(trace(r.origin, r.road)).all() for r in paired.itertuples()]
+    # Prefer crashes whose own window has no gaps; fall back rather than fail, since
+    # on sparse coverage an unbroken 18-bin window can be genuinely rare.
+    whole = paired.loc[complete].sort_values("crash_time")
+    partial = not len(whole)
+    if partial:
+        whole = paired.sort_values("crash_time")
+
+    picked = whole.head(count)
+    figure, axes = _axes(width=4.2 * (len(picked) + 1), columns=len(picked) + 1)
+    axes = np.atleast_1d(axes)
+    arms = (("crash", SERIES[0], MARKERS[0]), ("matched control", SERIES[1], MARKERS[1]))
+
+    for axis, row in zip(axes, picked.itertuples(), strict=False):
+        axis.axvline(0, color="#b9b8b2", linewidth=1)
+        for origin, (label, colour, marker) in zip(
+            (row.origin, row.origin_control), arms, strict=True
+        ):
+            axis.plot(
+                span,
+                trace(origin, row.road),
+                label=label,
+                color=colour,
+                marker=marker,
+                markersize=4,
+                linewidth=2,
+            )
+        axis.set_title(
+            f"segment {row.segment_id} · {row.crash_time:%d %b %H:%M}",
+            color=INK,
+            fontsize=10,
+            loc="left",
+        )
+        axis.set_xlabel("minutes from the crash", color=MUTED, fontsize=9)
+
+    mean_axis = axes[-1]
+    mean_axis.axvline(0, color="#b9b8b2", linewidth=1)
+    for column, (label, colour, marker) in zip(("origin", "origin_control"), arms, strict=True):
+        stack = np.stack([trace(int(o), r) for o, r in zip(whole[column], whole.road, strict=True)])
+        seen = np.isfinite(stack).sum(0).clip(min=1)
+        mean = np.nanmean(stack, axis=0)
+        band = 1.96 * np.nan_to_num(np.nanstd(stack, axis=0, ddof=1)) / np.sqrt(seen)
+        mean_axis.plot(
+            span, mean, label=label, color=colour, marker=marker, markersize=4, linewidth=2
+        )
+        mean_axis.fill_between(
+            span, mean - band, mean + band, color=colour, alpha=0.18, linewidth=0
+        )
+    label = "events" if partial else "fully observed events"
+    mean_axis.set_title(f"mean of {len(whole):,} {label}", color=INK, fontsize=10, loc="left")
+    mean_axis.set_xlabel("minutes from the crash", color=MUTED, fontsize=9)
+    mean_axis.legend(frameon=False, labelcolor=INK, fontsize=9)
+    axes[0].set_ylabel("observed speed (mph)", color=MUTED, fontsize=9)
     return _save(figure, path)

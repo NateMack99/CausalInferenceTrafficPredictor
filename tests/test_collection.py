@@ -24,6 +24,7 @@ from shapely.geometry import LineString
 from traffic_gml.data import csv_to_parquet
 from traffic_gml.graph import build_graph, load_graph
 from traffic_gml.plot import plot_graph
+from traffic_gml.roads import ensure_data
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -107,6 +108,11 @@ def test_graph_windows_and_plot(tmp_path):
         *windows, only_80_percent=True, data_dir=tmp_path, output_dir=tmp_path / "output"
     )
     assert set(subset.edges(keys=True)) == {(1, 2, 0)}
+
+
+def test_ensure_data_without_network_reports_missing_downloads(tmp_path):
+    with pytest.raises(FileNotFoundError, match="fetch_data.sh"):
+        ensure_data(tmp_path, network=False)
 
 
 @pytest.mark.parametrize("download", [False, True])

@@ -15,7 +15,7 @@ import pyarrow.dataset as pds
 import pytest
 
 from traffic_gml.data import FREQ
-from traffic_gml.evaluate import effects
+from traffic_gml.evaluate import coverage_funnel, effects, grid_coverage
 from traffic_gml.events import build_windows, event_datasets, processed_tables
 from traffic_gml.mock import make_mock
 from traffic_gml.models import build_model
@@ -135,3 +135,35 @@ def test_effects_recover_the_injected_shock_and_controls_stay_flat(events):
     assert crash.iloc[0] < -5.0
     assert crash.is_monotonic_increasing  # the slowdown decays back toward zero
     assert abs(flat).max() < 0.5  # matched controls show no effect
+
+
+def test_coverage_funnel_never_gains_crashes_between_stages(pipeline):
+    """Every stage must narrow the same population of crashes.
+
+    The audit table holds all three crashes; the joined `crashes` table holds
+    only the one that matched a monitored road. Counting the early stages from
+    one and the later stages from the other reported more survivors than the
+    stage above, which is how a retention funnel ends up above 100%.
+    """
+    speeds_dir, graphml, crash_csv = pipeline
+    tables = processed_tables(speeds_dir, graphml, crash_csv)
+    sets, edge_index = build_windows(tables, history=HISTORY, horizon=HORIZON)
+    ids = np.sort(tables["segments"].segment_id.unique())
+
+    funnel = coverage_funnel(pd.read_csv(crash_csv), sets["train"], ids, edge_index)
+
+    assert funnel.crashes.is_monotonic_decreasing
+    assert (funnel.step_pct <= 100.0).all()
+    assert funnel.crashes.iloc[0] == 3
+    # A and C are "matched", B is not; C sits on segment 40, which has no speeds,
+    # so it must be dropped at the grid stage rather than snapped to a neighbour.
+    assert funnel.crashes.tolist() == [3, 3, 2, 1, 1, 1]
+    assert funnel.retained_pct.iloc[-1] == pytest.approx(100 / 3, abs=0.1)
+
+
+def test_grid_coverage_is_a_fraction(pipeline):
+    speeds_dir, graphml, crash_csv = pipeline
+    tables = processed_tables(speeds_dir, graphml, crash_csv)
+    sets, _ = build_windows(tables, history=HISTORY, horizon=HORIZON)
+    # Segments 10, 20 and 30 are observed at every bin; segment 40 never became a road.
+    assert grid_coverage(sets["train"]) == pytest.approx(1.0)
