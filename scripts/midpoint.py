@@ -31,7 +31,7 @@ from traffic_gml.evaluate import (
 )
 from traffic_gml.events import build_windows, event_datasets, processed_tables, write_processed
 from traffic_gml.models import BASELINES, CONVS, build_model
-from traffic_gml.train import DEFAULTS, fit, set_seed
+from traffic_gml.train import DEFAULTS, data_version, fit, set_seed
 
 MODELS = (*BASELINES, *CONVS)
 
@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> dict:
     )
     train = sets["train"]
     print(
-        f"{train.num_roads} roads, {edge_index.size(1)} edges, "
+        f"{train.num_roads} roads, {edge_index.size(1):,} directed arcs, "
         + "  ".join(f"{name}={len(data):,} windows" for name, data in sets.items())
     )
     coverage = coverage_figure(train, args.out / "coverage.png")
@@ -105,19 +105,26 @@ def main(argv: list[str] | None = None) -> dict:
         print(f"  {name:16s} test MAE {row['mae']:6.3f}  RMSE {row['rmse']:6.3f}")
 
     segment_ids = np.sort(tables["segments"]["segment_id"].unique())
-    table, event, control = event_datasets(
+    table, control_table, event, control = event_datasets(
         train, tables["crashes"], segment_ids, controls=args.controls, seed=args.seed
     )
     model = fitted[args.effect_model]
-    event_effects = effects(model, event, edge_index)
-    control_effects = effects(model, control, edge_index)
+    keys = ["origin", "road", "crash_record_id", "segment_id"]
+    event_effects = effects(model, event, edge_index).merge(table[keys], on=["origin", "road"])
+    control_effects = effects(model, control, edge_index).merge(
+        control_table[keys], on=["origin", "road"]
+    )
     print(
-        f"{len(table):,} crashes with a usable history and a control; "
-        f"effects from {args.effect_model}"
+        f"{len(table):,} crashes with a crash-free history and {len(control_table):,} "
+        f"held-out controls; effects from {args.effect_model}"
     )
     for minutes, value in event_effects.groupby("minutes").effect.mean().items():
         matched = control_effects.loc[control_effects.minutes == minutes, "effect"].mean()
-        print(f"  +{minutes:3d} min  crash {value:+6.2f} mph   control {matched:+6.2f} mph")
+        n = int((event_effects.minutes == minutes).sum())
+        print(
+            f"  {minutes - 10:3d}-{minutes:3d} min  crash {value:+6.2f} mph"
+            f"   control {matched:+6.2f} mph   (n={n:,})"
+        )
 
     results = pd.DataFrame(
         [
@@ -131,6 +138,7 @@ def main(argv: list[str] | None = None) -> dict:
         ]
     ).sort_values("mae")
     results.to_csv(args.out / "results.csv", index=False)
+    table.to_csv(args.out / "events.csv", index=False)
     event_effects.assign(window="crash").to_csv(args.out / "effects_crash.csv", index=False)
     control_effects.assign(window="control").to_csv(args.out / "effects_control.csv", index=False)
     figures = [
@@ -141,10 +149,13 @@ def main(argv: list[str] | None = None) -> dict:
     (args.out / "summary.json").write_text(
         json.dumps(
             {
+                "args": {k: str(v) for k, v in vars(args).items()},
+                "data": data_version(tables, args.data or args.speeds),
                 "roads": train.num_roads,
                 "edges": int(edge_index.size(1)),
                 "windows": {name: len(data) for name, data in sets.items()},
-                "events": len(table),
+                "crashes": len(table),
+                "control_windows": len(control_table),
                 "effect_model": args.effect_model,
                 "metrics": metrics,
             },

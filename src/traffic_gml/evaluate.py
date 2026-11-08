@@ -190,7 +190,7 @@ def effect_figure(event: pd.DataFrame, control: pd.DataFrame, path: str | Path) 
     axis.set_title(
         "Speed effect after a crash, with 95% intervals", color=INK, fontsize=11, loc="left"
     )
-    axis.set_xlabel("minutes after the crash", color=MUTED, fontsize=9)
+    axis.set_xlabel("minutes after the crash (bin end)", color=MUTED, fontsize=9)
     axis.set_ylabel("observed − predicted (mph)", color=MUTED, fontsize=9)
     axis.legend(frameon=False, labelcolor=INK, fontsize=9)
     return _save(figure, path)
