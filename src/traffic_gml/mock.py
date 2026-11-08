@@ -32,7 +32,7 @@ def make_mock(
     links += [(node[r, c], node[r + 1, c]) for r in range(rows - 1) for c in range(cols)]
     edges = pd.DataFrame(links, columns=["src", "dst"]).astype("int64")
 
-    times = pd.date_range("2025-01-06", periods=days * 144, freq=FREQ, tz="UTC")
+    times = pd.date_range("2025-01-06", periods=days * 144, freq=FREQ)
     local = local_time(times)
     hour = np.asarray(local.hour) + np.asarray(local.minute) / 60
     rush = np.exp(-0.5 * ((hour - 8) / 1.4) ** 2) + np.exp(-0.5 * ((hour - 17.5) / 1.6) ** 2)

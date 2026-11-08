@@ -20,7 +20,7 @@ import pyarrow.dataset as ds
 
 FREQ = "10min"
 BIN_MINUTES = 10
-#: Bins are stored in UTC per `docs/data.md`; rush hour is local.
+#: The portal publishes naive local timestamps; rush hour is a local phenomenon.
 LOCAL_TZ = "America/Chicago"
 #: Required columns of the processed tables, per `docs/data.md`.
 TABLES: dict[str, tuple[str, ...]] = {
@@ -65,16 +65,16 @@ def align_grid(
 
 
 def local_time(times: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    """Bins in local time. Naive input is taken as UTC, per `docs/data.md`.
+    """Bins in local time.
 
-    Getting this wrong puts every clock feature hours out of phase, so the run
-    summary prints the local span it inferred.
+    The portal publishes naive local timestamps and `csv_to_parquet` keeps them
+    that way, so naive input is taken as already local. Only tz-aware input is
+    converted. Getting this backwards puts every clock feature hours out of
+    phase, so `train.py` prints the local span it inferred.
     """
-    utc = times.tz_localize("UTC") if times.tz is None else times
-    return utc.tz_convert(LOCAL_TZ)
-
-
-
+    if times.tz is None:
+        return times
+    return times.tz_convert(LOCAL_TZ)
 
 
 def _timestamps(values: pd.Series) -> pd.Series:
