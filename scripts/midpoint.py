@@ -30,6 +30,7 @@ from traffic_gml.evaluate import (
     effects,
     evaluate,
     grid_coverage,
+    neighbour_coverage,
     placebo_corrected,
     trajectory_figure,
 )
@@ -83,10 +84,27 @@ study; the full monitored network is 881 segments with 90% in one component. The
 cost is coverage: {coverage:.1%} of grid cells observed. See
 coverage_funnel.csv for retention at every filtering stage.
 
-## Intervals
+## Intervals, and what they do not cover
 
 Event-level only while each crash contributes one row per bin, and not clustered
 by crash. They are not valid once neighbour roads enter.
+
+They also say nothing about the control draw. Redrawing which accident-free
+windows serve as controls has moved per-bin estimates by up to 0.16 mph and
+changed how many bins exclude zero, while the crash arm moved under 0.03 mph --
+so the control arm, not the crash arm, is the noise. Matching yields about two
+usable controls per crash over two months, which caps what `--controls` can buy;
+a longer span is the fix. Read the pooled estimate and the shape across horizons,
+not the per-bin stars from one draw.
+
+## Spillover feasibility
+
+`neighbour_coverage.csv` answers whether the main research question is reachable:
+per hop ring, how many events have a connected road observed at all, over half
+the post bins, and over every post bin with a history to forecast from. The last
+column is the one that gates a spillover study. Missingness that is flat across
+the horizon means immediate and delayed effects stay separable; missingness that
+grows with time since the crash would not.
 """
 
 
@@ -158,17 +176,6 @@ def main(argv: list[str] | None = None) -> dict:
     )
     coverage = grid_coverage(train)
     print(f"  speed grid observed on {coverage:.1%} of [bin, road] cells")
-    funnel = None
-    if args.crashes:
-        funnel = coverage_funnel(
-            pd.read_csv(args.crashes), train, segment_ids_of(tables), edge_index
-        )
-        funnel.to_csv(args.out / "coverage_funnel.csv", index=False)
-        print("  crash funnel:")
-        for row in funnel.itertuples():
-            print(f"    {row.crashes:7,}  {row.retained_pct:5.1f}% kept  {row.stage}")
-    else:
-        print("  no crash funnel: pass --crashes <*_crash_segments.csv> for the coverage report")
     coverage_path = coverage_figure(train, args.out / "coverage.png")
 
     metrics, fitted = {}, {}
@@ -193,6 +200,26 @@ def main(argv: list[str] | None = None) -> dict:
     table, control_table, event, control = event_datasets(
         train, tables["crashes"], segment_ids, controls=args.controls, seed=args.seed
     )
+    funnel = None
+    if args.crashes:
+        funnel = coverage_funnel(pd.read_csv(args.crashes), train, segment_ids, edge_index, table)
+        funnel.to_csv(args.out / "coverage_funnel.csv", index=False)
+        print("  crash funnel:")
+        for row in funnel.itertuples():
+            print(f"    {row.crashes:7,}  {row.retained_pct:5.1f}% kept  {row.stage}")
+    else:
+        print("  no crash funnel: pass --crashes <*_crash_segments.csv> for the coverage report")
+
+    nearby = neighbour_coverage(train, edge_index, table, hops=args.exposure_hops)
+    nearby.to_csv(args.out / "neighbour_coverage.csv", index=False)
+    print(f"  neighbour observability (events with such a neighbour, of {len(table):,}):")
+    for row in nearby.itertuples():
+        print(
+            f"    {row.hop}-hop  any bin {row.any_post_bin:6,}  "
+            f">=half {row.half_post_bins:6,}  full trajectory {row.full_trajectory:6,}  "
+            f"({row.full_trajectory / max(len(table), 1):.1%})"
+        )
+
     model = fitted[args.effect_model]
     # One key row per window, and `validate` so a future many-to-many merge
     # fails loudly instead of silently duplicating effect rows.
@@ -254,6 +281,7 @@ def main(argv: list[str] | None = None) -> dict:
                 "control_windows": len(control_table),
                 "grid_coverage": round(coverage, 4),
                 "coverage_funnel": (funnel.to_dict("records") if funnel is not None else None),
+                "neighbour_coverage": nearby.to_dict("records"),
                 "effect_mph": estimate.set_index("minutes").effect.round(3).to_dict(),
                 "effect_model": args.effect_model,
                 "metrics": metrics,

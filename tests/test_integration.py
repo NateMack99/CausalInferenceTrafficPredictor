@@ -15,8 +15,8 @@ import pyarrow.dataset as pds
 import pytest
 
 from traffic_gml.data import FREQ
-from traffic_gml.evaluate import coverage_funnel, effects, grid_coverage
-from traffic_gml.events import build_windows, event_datasets, processed_tables
+from traffic_gml.evaluate import coverage_funnel, effects, grid_coverage, neighbour_coverage
+from traffic_gml.events import build_windows, crash_index, event_datasets, processed_tables
 from traffic_gml.mock import make_mock
 from traffic_gml.models import build_model
 
@@ -153,14 +153,18 @@ def test_coverage_funnel_never_gains_crashes_between_stages(pipeline):
     sets, edge_index = build_windows(tables, history=HISTORY, horizon=HORIZON)
     ids = np.sort(tables["segments"].segment_id.unique())
 
-    funnel = coverage_funnel(pd.read_csv(crash_csv), sets["train"], ids, edge_index)
+    # The analysis sample is what the estimator actually runs on, so the funnel
+    # takes it rather than re-deriving a stricter population of its own.
+    bins, roads, on_grid = crash_index(tables["crashes"], sets["train"].times, ids)
+    events = pd.DataFrame({"origin": bins[on_grid] - 1, "road": roads[on_grid]})
+    funnel = coverage_funnel(pd.read_csv(crash_csv), sets["train"], ids, edge_index, events)
 
     assert funnel.crashes.is_monotonic_decreasing
     assert (funnel.step_pct <= 100.0).all()
     assert funnel.crashes.iloc[0] == 3
     # A and C are "matched", B is not; C sits on segment 40, which has no speeds,
     # so it must be dropped at the grid stage rather than snapped to a neighbour.
-    assert funnel.crashes.tolist() == [3, 3, 2, 1, 1, 1]
+    assert funnel.crashes.tolist() == [3, 3, 2, 1, 1, 1, 1]
     assert funnel.retained_pct.iloc[-1] == pytest.approx(100 / 3, abs=0.1)
 
 
@@ -187,3 +191,22 @@ def test_two_crashes_in_one_bin_on_one_road_are_one_event(events):
     assert len(event_again) == len(event)
     assert not again.duplicated(subset=["origin", "road"]).any()
     assert "-twin" not in set(again.crash_record_id)
+
+
+def test_neighbour_coverage_bars_get_stricter_not_looser(events):
+    """Each stricter bar must be a subset of the one above it."""
+    _, sets, edge_index, table, _, _, _ = events
+    nearby = neighbour_coverage(sets["train"], edge_index, table, hops=2)
+
+    assert nearby.hop.tolist() == [1, 2]
+    for row in nearby.itertuples():
+        assert row.events == len(table)
+        assert (
+            row.events
+            >= row.with_neighbour_in_graph
+            >= row.any_post_bin
+            >= row.half_post_bins
+            >= row.all_post_bins
+            >= row.full_trajectory
+            >= 0
+        )

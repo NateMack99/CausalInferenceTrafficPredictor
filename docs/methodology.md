@@ -45,11 +45,27 @@ PR #3 plus `scripts/midpoint.py`:
 - Forecast MAE/RMSE in mph, overall and per horizon step (`evaluate.evaluate`).
 - `τ̂` per window, road and step (`evaluate.effects`), and the crash-minus-matched-control
   estimate with a 95% interval (`evaluate.placebo_corrected`).
+- A nested coverage funnel ending at the analysis sample, and per-hop neighbour
+  observability for that sample (`evaluate.coverage_funnel`, `evaluate.neighbour_coverage`).
+  The funnel's stricter rows sit *inside* the analysis sample: requiring every bin observed
+  is much stricter than the estimator is, since a masked target contributes nothing to its
+  bin, so reading the last row as the sample size understates it several-fold.
 
 Limits of what exists: effects are measured on the crash segment only, intervals are
 event-level and not clustered, and a crash is assumed to contaminate for `horizon` bins
-after it is reported — an assumption, not a measurement. No results are reported in this
-document; the figures and tables a run produces are run outputs, not validated effects.
+after it is reported — an assumption, not a measurement.
+
+The estimate is also sensitive to **which** accident-free windows are drawn as controls.
+Redrawing them moved per-bin estimates by up to 0.16 mph and changed how many bins
+excluded zero, while the crash arm stayed within 0.03 mph. Control supply is the binding
+constraint: matching on the same road and week slot, crash-free and never trained on,
+yields about two candidates per crash over a two-month window, so `--controls` above that
+buys little and a longer span buys more than a larger flag. Per-bin significance should not
+be read as a finding from a single draw; report the pooled estimate and the horizon shape,
+and treat the control draw as a source of uncertainty the interval does not cover.
+
+No results are reported in this document; the figures and tables a run produces are run
+outputs, not validated effects.
 
 ## What is planned
 

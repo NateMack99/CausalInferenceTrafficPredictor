@@ -243,19 +243,25 @@ def coverage_funnel(
     data: Windows,
     segment_ids: np.ndarray,
     edge_index: Tensor,
+    events: pd.DataFrame,
 ) -> pd.DataFrame:
     """How many crashes survive each filter, with retention at every stage.
 
-    A large raw crash table does not mean a usable event study. The last two
-    rows are the ones that decide feasibility: whether a matched crash has an
-    unbroken speed history around it, and whether its connected roads were
-    observed at all -- without that, no spillover can be measured.
+    A large raw crash table does not mean a usable event study. The row that
+    matters for sample size is the analysis sample -- the crashes the effect
+    estimate is actually computed on. The two rows below it describe a stricter
+    reference subset *within* that sample, so every stage is nested and the
+    percentages compose.
 
-    Every stage is counted from `audit`, the full crash table that
-    `segments.analyze` writes with a `match_status` per row. Counting the later
-    stages from the joined `crashes` table instead would mix two populations:
-    that table is already filtered to matched crashes, so a funnel built from
-    both would report more survivors than the stage above it.
+    Reading the last row as the sample size is the mistake this layout exists
+    to prevent: requiring every bin observed is far stricter than the estimator
+    is, because a masked target simply contributes nothing to that bin.
+
+    Stages one to four are counted from `audit`, the full crash table that
+    `segments.analyze` writes with a `match_status` per row. Counting them from
+    the joined `crashes` table instead would mix two populations: that table is
+    already filtered to matched crashes, so a funnel built from both would
+    report more survivors than the stage above it.
     """
     matched = audit.loc[audit["match_status"] == "matched"].copy()
     when = matched["crash_time"] if "crash_time" in matched else matched["timestamp"]
@@ -267,13 +273,17 @@ def coverage_funnel(
     history, horizon = data.history, data.horizon
     reach = neighbourhood(edge_index, len(segment_ids), 1)
 
-    bins, roads, on_grid = crash_index(matched, data.times, segment_ids)
-    in_grid = complete = with_neighbours = 0
-    for crash_bin, road, known in zip(bins, roads, on_grid, strict=True):
+    bins, _, on_grid = crash_index(matched, data.times, segment_ids)
+    in_grid = 0
+    for crash_bin, known in zip(bins, on_grid, strict=True):
         origin = int(crash_bin) - 1
-        if not known or origin - history + 1 < 0 or origin + horizon >= len(data.times):
-            continue
-        in_grid += 1
+        if known and origin - history + 1 >= 0 and origin + horizon < len(data.times):
+            in_grid += 1
+
+    # Counted over the analysis sample, so these stages nest inside it.
+    complete = with_neighbours = 0
+    for origin, road in zip(events["origin"], events["road"], strict=True):
+        origin, road = int(origin), int(road)
         pre = observed[origin - history + 1 : origin + 1, road]
         post = observed[origin + 1 : origin + 1 + horizon, road]
         if not (pre.all() and post.all()):
@@ -288,7 +298,8 @@ def coverage_funnel(
         ("with usable coordinates", int((audit.match_status != "invalid_coordinates").sum())),
         ("matched to a monitored segment", len(matched)),
         ("on a segment with speed data, window fits", in_grid),
-        ("every pre and post bin observed", complete),
+        ("crash-free history and a held-out control (analysis sample)", len(events)),
+        ("of those, every pre and post bin observed", complete),
         ("and a connected road observed too", with_neighbours),
     ]
     first = stages[0][1] or 1
@@ -303,6 +314,57 @@ def coverage_funnel(
             for i, (name, count) in enumerate(stages)
         ]
     )
+
+
+def neighbour_coverage(
+    data: Windows, edge_index: Tensor, events: pd.DataFrame, hops: int = 2
+) -> pd.DataFrame:
+    """Can spillover be measured? Neighbour observability per hop, per event.
+
+    The funnel's last row only asks whether *any* connected road was observed
+    in *any* bin. Estimating how congestion spreads needs more than that: the
+    neighbour has to be observed across the bins the disruption would travel
+    through, and have a history to forecast it from. One row per hop ring, with
+    how many events clear progressively stricter bars.
+
+    `full_trajectory` is the one that gates a spillover study. Rings are
+    exclusive, so the 2-hop row describes roads two hops away and no nearer.
+    """
+    observed = np.isfinite(data.values.numpy())
+    history, horizon = data.history, data.horizon
+    reach = [neighbourhood(edge_index, data.num_roads, k) for k in range(hops + 1)]
+
+    rows = []
+    for hop in range(1, hops + 1):
+        counts = {"any": 0, "half": 0, "full": 0, "trajectory": 0, "in_graph": 0, "usable": 0}
+        for origin, road in zip(events["origin"], events["road"], strict=True):
+            origin, road = int(origin), int(road)
+            inner = set(reach[hop - 1][road].indices)
+            ring = np.array([n for n in reach[hop][road].indices if n not in inner], dtype=int)
+            if not len(ring):
+                continue
+            counts["in_graph"] += 1
+            post = observed[origin + 1 : origin + 1 + horizon][:, ring].sum(axis=0)
+            has_history = observed[origin - history + 1 : origin + 1][:, ring].any(axis=0)
+            counts["any"] += bool((post >= 1).any())
+            counts["half"] += bool((post >= horizon / 2).any())
+            counts["full"] += bool((post == horizon).any())
+            usable = (post == horizon) & has_history
+            counts["trajectory"] += bool(usable.any())
+            counts["usable"] += int(usable.sum())
+        rows.append(
+            {
+                "hop": hop,
+                "events": len(events),
+                "with_neighbour_in_graph": counts["in_graph"],
+                "any_post_bin": counts["any"],
+                "half_post_bins": counts["half"],
+                "all_post_bins": counts["full"],
+                "full_trajectory": counts["trajectory"],
+                "usable_per_event": round(counts["usable"] / max(len(events), 1), 2),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def grid_coverage(data: Windows) -> float:
