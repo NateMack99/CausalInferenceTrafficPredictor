@@ -14,7 +14,7 @@ Read `README.md`, `PROJECT_ROADMAP.md`, and the relevant file in `docs/` before 
 - Train the no-accident predictor on accident-free target windows.
 - Avoid temporal, event, and train/test leakage.
 - Compare methods on the same splits; report forecast and effect errors separately.
-- Record random seeds, arguments, data versions, and results.
+- Record random seeds, arguments, data versions, and results; shared settings and the frozen baseline live in `docs/experiments.md`.
 - Treat observational causal effects as assumption-dependent.
 
 ## Before a PR

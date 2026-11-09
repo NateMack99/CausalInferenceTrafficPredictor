@@ -24,3 +24,19 @@ outputs/
 *.ckpt
 
 cache/
+
+# LaTeX build output (Proposal/ is a convenience copy; Overleaf is source of truth)
+Proposal/**/*.aux
+Proposal/**/*.bbl
+Proposal/**/*.blg
+Proposal/**/*.fdb_latexmk
+Proposal/**/*.fls
+Proposal/**/*.lof
+Proposal/**/*.log
+Proposal/**/*.lot
+Proposal/**/*.nav
+Proposal/**/*.out
+Proposal/**/*.snm
+Proposal/**/*.synctex.gz
+Proposal/**/*.toc
+Proposal/**/*.vrb

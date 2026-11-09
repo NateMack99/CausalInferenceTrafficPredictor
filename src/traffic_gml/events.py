@@ -1,9 +1,7 @@
 """Model inputs and prediction targets: crash-free forecasting windows.
 
-PR #4 owns the full accident and matched-control construction; this is the
-crash-free slice PR #3 needs. Table loading, speed alignment and
-`build_edge_index` belong in `data.py`/`graph.py` and live here only so PR #3
-touches neither file while PR #1 and PR #2 are being written.
+Table loading and speed alignment live in `data.py`, graph tensors in
+`graph.py`; this module turns them into the windows the models are fed.
 
 `docs/architecture.md` owns the batch shapes and the asymmetries behind them.
 The rule it leaves to the code: a crash contaminates its own road and every
@@ -16,8 +14,10 @@ the very counterfactual it is measured against.
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
+import networkx as nx
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -25,94 +25,193 @@ import torch
 from torch import Tensor
 from torch.utils.data import Dataset
 
-FREQ = "10min"
-BIN_MINUTES = 10
+from .data import BIN_MINUTES, FREQ, TABLES, align_grid, load_speed_dataset, local_time
+from .graph import build_edge_index, neighbourhood
+
 BINS_PER_DAY = 24 * 60 // BIN_MINUTES
 WEEK_SLOTS = 7 * BINS_PER_DAY
-#: Bins are stored in UTC per `docs/data.md`; rush hour is local.
-LOCAL_TZ = "America/Chicago"
 #: Per-bin feature channels, before any static road columns.
 FEATURES = ("speed", "tod_sin", "tod_cos", "dow_sin", "dow_cos")
-#: Required columns of the processed tables, per `docs/data.md`.
-TABLES: dict[str, tuple[str, ...]] = {
-    "speeds": ("segment_id", "time", "speed"),
-    "crashes": ("crash_record_id", "crash_time", "segment_id"),
-    "segments": ("segment_id",),
-    "edges": ("src", "dst"),
-}
 
 
-def load_tables(path: str | Path) -> dict[str, pd.DataFrame]:
-    tables: dict[str, pd.DataFrame] = {}
+def processed_tables(
+    speeds_dir: str | Path,
+    segment_graphml: str | Path,
+    crash_csv: str | Path,
+    window: tuple[str, str] | None = None,
+) -> dict[str, pd.DataFrame]:
+    """Join the speed, crash and road-graph outputs into the model contract.
+
+    `segment_graphml` and `crash_csv` are what `segments.analyze` writes beside
+    the road graph. Three judgement calls, all of them narrowing:
+
+    - only crashes with `match_status == "matched"` become events, since an
+      unmatched crash has no road to attribute a slowdown to;
+    - only crashes inside the speed window are kept, because a crash outside it
+      cannot contaminate any window built from these speeds;
+    - only segments with an observed speed in the window become nodes, so the
+      dense `[bins, roads]` grid is not mostly empty columns. Edges to a dropped
+      segment go with it, which removes paths that ran through unobserved road.
+    """
+    speeds = load_speed_dataset(speeds_dir, window)
+    observed = speeds.loc[speeds["speed"].notna(), "segment_id"].unique()
+
+    graph = nx.read_graphml(segment_graphml, node_type=int)
+    keep = sorted(set(observed) & set(graph.nodes))
+    if not keep:
+        raise ValueError("no segment has both an observed speed and a node in the road graph")
+    graph = graph.subgraph(keep)
+
+    segments = pd.DataFrame.from_dict(dict(graph.nodes(data=True)), orient="index")
+    segments.index.name = "segment_id"
+    segments = segments.reset_index()
+
+    # The segment graph is undirected, so emit both directions: PyG message
+    # passing follows edge_index as given, and one direction would starve half
+    # the neighbourhood.
+    both = {(int(u), int(v)) for u, v in graph.edges()}
+    both |= {(v, u) for u, v in both}
+    edges = pd.DataFrame(sorted(both), columns=["src", "dst"])
+
+    crashes = pd.read_csv(crash_csv)
+    crashes = crashes.loc[crashes["match_status"] == "matched"].copy()
+    crashes["crash_time"] = pd.to_datetime(crashes["timestamp"])
+    crashes = crashes.loc[crashes["segment_id"].notna()]
+    crashes["segment_id"] = crashes["segment_id"].astype("int64")
+    crashes = crashes.loc[crashes["segment_id"].isin(keep)]
+    if window is not None:
+        # Upper bound only: contamination runs forward, so a crash just before
+        # the window still touches the first bins, and `crash_cells` clips any
+        # whose wake lands entirely outside.
+        crashes = crashes.loc[crashes["crash_time"] < pd.Timestamp(window[1])]
+
+    tables = {
+        "speeds": speeds.loc[speeds["segment_id"].isin(keep)].reset_index(drop=True),
+        "crashes": crashes[list(TABLES["crashes"])].reset_index(drop=True),
+        "segments": segments,
+        "edges": edges,
+    }
     for name, columns in TABLES.items():
-        file = Path(path) / f"{name}.parquet"
-        if not file.exists():
-            raise FileNotFoundError(
-                f"{file} not found. Point --data at data/processed, or write mock "
-                f"tables with scripts/make_mock_data.py."
-            )
-        tables[name] = pd.read_parquet(file)
         missing = [c for c in columns if c not in tables[name].columns]
         if missing:
-            raise ValueError(f"{file} is missing columns {missing}")
+            raise ValueError(f"joined {name} table is missing {missing}")
     return tables
 
 
-def align_grid(
-    speeds: pd.DataFrame, segment_ids: np.ndarray
-) -> tuple[np.ndarray, pd.DatetimeIndex]:
-    """Speeds on a gap-free grid: `[bins, roads]` in mph, NaN where missing."""
-    frame = speeds[["segment_id", "time", "speed"]].copy()
-    frame["time"] = pd.to_datetime(frame["time"]).dt.floor(FREQ)
-    frame["speed"] = frame["speed"].astype("float32").where(frame["speed"] >= 0)
-    times = pd.date_range(frame["time"].min(), frame["time"].max(), freq=FREQ)
-    wide = (
-        frame.groupby(["time", "segment_id"])["speed"]
-        .mean()
-        .unstack("segment_id")
-        .reindex(index=times, columns=segment_ids)
-    )
-    return wide.to_numpy("float32", copy=True), times
+def write_processed(tables: dict[str, pd.DataFrame], out: str | Path) -> Path:
+    """Write the four contract tables so `--data` can point at them."""
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    for name, table in tables.items():
+        table.to_parquet(out / f"{name}.parquet", index=False)
+    return out
 
 
-def build_edge_index(edges: pd.DataFrame, segment_ids: np.ndarray) -> Tensor:
-    """`[2, edges]` in node-index order; unknown segments and self loops dropped."""
-    node = {segment: index for index, segment in enumerate(segment_ids)}
-    pairs = {
-        (node[src], node[dst])
-        for src, dst in zip(edges["src"], edges["dst"], strict=True)
-        if src in node and dst in node and src != dst
-    }
-    if not pairs:
-        return torch.zeros((2, 0), dtype=torch.long)
-    return torch.tensor(sorted(pairs), dtype=torch.long).t().contiguous()
+def event_datasets(
+    reference: Windows,
+    crashes: pd.DataFrame,
+    segment_ids: np.ndarray,
+    controls: int = 1,
+    seed: int = 0,
+) -> tuple[pd.DataFrame, pd.DataFrame, Windows, Windows]:
+    """Before/after windows for each matched crash, plus accident-free controls.
 
+    The event origin is the last bin before the crash, so `x` is entirely
+    pre-crash and `y` spans the crash itself. Only the crash's own road is
+    unmasked, so a window scores that road and nothing else.
 
-def neighbourhood(edge_index: Tensor, num_roads: int, hops: int) -> sp.csr_matrix:
-    """Boolean `[roads, roads]` reachability within `hops` undirected hops.
+    Both arms are held to the same standard, which is what makes the control a
+    placebo rather than a flattering one:
 
-    Undirected and inclusive of self: this decides which roads a crash
-    contaminates, where over-reaching is the safe direction to err.
+    - a control is the same road at the same slot of the week in another week,
+      crash-free across its whole span, and **none of its target bins may be a
+      cell the model was fitted on**. Otherwise the control arm reports in-sample
+      residuals against the event arm's out-of-sample ones, and part of the gap
+      between them is just the model fitting its own training data.
+    - an event's pre-crash lag must be crash-free too, so an earlier crash on
+      the same road cannot depress the history the forecast is made from.
+
+    Several crash reports can land in one bin on one road. That is one
+    disturbance observed once, not several events: the window and its speeds
+    would be identical, so repeating it would weight that road more heavily and
+    narrow the interval without adding information. Only the first is kept.
+
+    Returns one row per crash, one row per (crash, control) pair, and the two
+    window sets. The event set holds one window per crash: repeating it once
+    per control would shrink the intervals without adding any information.
     """
-    adjacency = sp.csr_matrix(
-        (np.ones(edge_index.size(1), dtype=bool), (edge_index[0].numpy(), edge_index[1].numpy())),
-        shape=(num_roads, num_roads),
-    )
-    both = (adjacency + adjacency.T).astype(bool)
-    reach = sp.identity(num_roads, dtype=bool, format="csr")
-    for _ in range(hops):
-        reach = (reach + reach @ both).astype(bool)
-    return reach
+    history, horizon = reference.history, reference.horizon
+    values, clean = reference.values.numpy(), reference.clean.numpy()
+    slot = reference.slot.numpy()
+    n_bins = values.shape[0]
+    times = reference.times
+    if len(segment_ids) != reference.num_roads:
+        raise ValueError("segment_ids does not match the grid these windows were built on")
 
+    # Cells the model was fitted on are the *targets* of training windows, not
+    # their origins: a window at origin `o` learns from `[o+1, o+horizon]`.
+    # Marking origins let a control whose own targets had been fitted pass the
+    # check, because its origin fell in the gap band while its targets did not.
+    trained = np.zeros(values.shape, dtype=bool)
+    origins, fitted = reference.origins.numpy(), reference.usable.numpy()
+    for step in range(1, horizon + 1):
+        trained[origins + step] |= fitted
 
-def local_time(times: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    """Bins in local time. Naive input is taken as UTC, per `docs/data.md`.
+    bins, roads, on_grid = crash_index(crashes, times, segment_ids)
+    rng = np.random.default_rng(seed)
 
-    Getting this wrong puts every clock feature hours out of phase, so the run
-    summary prints the local span it inferred.
-    """
-    utc = times.tz_localize("UTC") if times.tz is None else times
-    return utc.tz_convert(LOCAL_TZ)
+    events, pairs, seen = [], [], set()
+    for record, crash_bin, road, known in zip(
+        crashes["crash_record_id"], bins, roads, on_grid, strict=True
+    ):
+        origin = int(crash_bin) - 1
+        if not known or origin - history + 1 < 0 or origin + horizon >= n_bins:
+            continue
+        if (origin, int(road)) in seen:
+            continue
+        lag = slice(origin - history + 1, origin + 1)
+        if not clean[lag, road].all() or not np.isfinite(values[lag, road]).any():
+            continue
+        seen.add((origin, int(road)))
+
+        usable_controls = [
+            int(t)
+            for t in np.flatnonzero(slot == slot[origin])
+            if abs(t - origin) >= history + horizon
+            and t - history + 1 >= 0
+            and t + horizon < n_bins
+            and not trained[t + 1 : t + 1 + horizon, road].any()
+            and clean[t - history + 1 : t + horizon + 1, road].all()
+            and np.isfinite(values[t + 1 : t + 1 + horizon, road]).any()
+        ]
+        if not usable_controls:
+            continue
+
+        shared = {
+            "crash_record_id": record,
+            "segment_id": int(segment_ids[road]),
+            "road": int(road),
+        }
+        events.append({**shared, "crash_time": times[int(crash_bin)], "origin": origin})
+        chosen = rng.choice(
+            usable_controls, size=min(controls, len(usable_controls)), replace=False
+        )
+        pairs += [{**shared, "origin": int(t)} for t in np.atleast_1d(chosen)]
+
+    table, control_table = pd.DataFrame(events), pd.DataFrame(pairs)
+    if table.empty:
+        raise ValueError(
+            "no crash has both a crash-free pre-crash history and a held-out control; "
+            "widen the speed window or lower --history/--horizon"
+        )
+
+    def windows(frame: pd.DataFrame) -> Windows:
+        unique = frame.drop_duplicates(subset=["origin", "road"])
+        only = np.zeros((len(unique), reference.num_roads), dtype=bool)
+        only[np.arange(len(unique)), unique["road"].to_numpy()] = True
+        return reference.at(unique["origin"].to_numpy(), only)
+
+    return table, control_table, windows(table), windows(control_table)
 
 
 def clock_features(times: pd.DatetimeIndex) -> np.ndarray:
@@ -171,6 +270,13 @@ class Windows(Dataset):
         self.mean, self.std = norm
         self.num_roads = values.shape[1]
         self.num_features = len(FEATURES) + static.shape[1]
+
+    def at(self, origins: np.ndarray, usable: np.ndarray) -> Windows:
+        """Same grid and statistics, different windows — for event/control sets."""
+        other = copy.copy(self)
+        other.origins = torch.from_numpy(np.asarray(origins, dtype=np.int64))
+        other.usable = torch.from_numpy(np.asarray(usable, dtype=bool))
+        return other
 
     def encode(self, speed):  # Tensor or ndarray, both used
         return (speed - self.mean) / self.std
@@ -246,6 +352,28 @@ def split_windows(count: int, fracs: tuple[float, float, float], gap: int) -> di
     return splits
 
 
+def crash_index(
+    crashes: pd.DataFrame, times: pd.DatetimeIndex, segment_ids: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Each crash's (bin, road), and a mask of the ones that land on this grid.
+
+    A crash on a segment that is not a road here has to be rejected, not snapped
+    to a neighbour: `searchsorted` alone returns the insertion point, so segment
+    25 against roads [10, 20, 30, 40] would come back as road 30 and the effect
+    would be measured on a road that never had the crash. A `NaT` crash time
+    must not become bin 0 either. A crash *before* the grid keeps its negative
+    bin, so `crash_cells` can still mask the part of its wake that lands inside.
+    """
+    when = pd.to_datetime(crashes["crash_time"]).dt.floor(FREQ)
+    dated = when.notna().to_numpy()
+    bins = np.full(len(when), -1, dtype=np.int64)
+    bins[dated] = (when[dated] - times[0]) // pd.Timedelta(FREQ)
+    road_of = crashes["segment_id"].to_numpy()
+    roads = np.minimum(np.searchsorted(segment_ids, road_of), len(segment_ids) - 1)
+    on_grid = (segment_ids[roads] == road_of) & dated & (bins < len(times))
+    return bins, roads, on_grid
+
+
 def crash_cells(
     crashes: pd.DataFrame,
     times: pd.DatetimeIndex,
@@ -258,18 +386,11 @@ def crash_cells(
     graph and `horizon` bins forward. Rows with no usable time or segment are
     ignored -- a `NaT` must not become a crash at bin 0.
     """
-    when = pd.to_datetime(crashes["crash_time"]).dt.floor(FREQ)
-    dated = when.notna().to_numpy()
-    bins = np.full(len(when), -1, dtype=np.int64)
-    bins[dated] = (when[dated] - times[0]) // pd.Timedelta(FREQ)
-    road_of = crashes["segment_id"].to_numpy()
-    roads = np.minimum(np.searchsorted(segment_ids, road_of), len(segment_ids) - 1)
-    on_grid = (segment_ids[roads] == road_of) & (bins >= 0) & (bins < len(times))
-
+    bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     lasts = np.arange(horizon + 1)
     rows = (bins[on_grid][:, None] + lasts).ravel()
     cols = np.repeat(roads[on_grid], lasts.size)
-    inside = rows < len(times)
+    inside = (rows >= 0) & (rows < len(times))
     hit = sp.csr_matrix(
         (np.ones(int(inside.sum()), dtype=bool), (rows[inside], cols[inside])),
         shape=(len(times), len(segment_ids)),

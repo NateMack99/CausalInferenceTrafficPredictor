@@ -48,9 +48,7 @@ DEFAULT_SAMPLE = 1_000
 # --------------------------------------------------------------------------
 # 1. Segment graph: nodes = speed segments, edges = shared intersection
 # --------------------------------------------------------------------------
-def build_segment_graph(
-    road: nx.MultiDiGraph, reference: pd.DataFrame | None = None
-) -> nx.Graph:
+def build_segment_graph(road: nx.MultiDiGraph, reference: pd.DataFrame | None = None) -> nx.Graph:
     """Link two segments when any of their OSM edges touch the same intersection.
 
     A segment can span several OSM edges, so its length is their sum. The link
@@ -298,15 +296,21 @@ def analyze(
     )
 
     crashes = match_crashes_to_segments(road)
-    print("Crash matching: " + ", ".join(
-        f"{status}={count:,}" for status, count in crashes.match_status.value_counts().items()
-    ))
+    print(
+        "Crash matching: "
+        + ", ".join(
+            f"{status}={count:,}" for status, count in crashes.match_status.value_counts().items()
+        )
+    )
     add_crash_counts(G, crashes)
     add_centrality(G, k=k)
 
     table = segment_table(G)
-    show = [c for c in ("street", "from_street", "to_street", "betweenness", "degree", "crashes")
-            if c in table.columns]
+    show = [
+        c
+        for c in ("street", "from_street", "to_street", "betweenness", "degree", "crashes")
+        if c in table.columns
+    ]
     print(f"\nTop {top} segments by betweenness:")
     print(table[show].head(top).to_string())
 
