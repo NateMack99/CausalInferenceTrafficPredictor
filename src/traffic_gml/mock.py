@@ -9,10 +9,13 @@ model to find. Do not read a graph-versus-no-graph result off it.
 
 from __future__ import annotations
 
+import argparse
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
-from .events import FREQ, local_time
+from .data import FREQ, local_time
 
 
 def make_mock(
@@ -32,7 +35,7 @@ def make_mock(
     links += [(node[r, c], node[r + 1, c]) for r in range(rows - 1) for c in range(cols)]
     edges = pd.DataFrame(links, columns=["src", "dst"]).astype("int64")
 
-    times = pd.date_range("2025-01-06", periods=days * 144, freq=FREQ, tz="UTC")
+    times = pd.date_range("2025-01-06", periods=days * 144, freq=FREQ)
     local = local_time(times)
     hour = np.asarray(local.hour) + np.asarray(local.minute) / 60
     rush = np.exp(-0.5 * ((hour - 8) / 1.4) ** 2) + np.exp(-0.5 * ((hour - 17.5) / 1.6) ** 2)
@@ -80,9 +83,30 @@ def make_mock(
         "segments": pd.DataFrame(
             {
                 "segment_id": ids,
-                "length": np.linspace(0.2, 0.6, ids.size).astype("float32"),
+                "length_m": np.linspace(120.0, 400.0, ids.size).astype("float32"),
                 "degree": np.array([len(neighbours[i]) for i in range(ids.size)], dtype="int64"),
             }
         ),
         "edges": edges,
     }
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Write mock processed tables.")
+    parser.add_argument("--out", type=Path, default=Path("data/mock"))
+    parser.add_argument("--rows", type=int, default=6)
+    parser.add_argument("--cols", type=int, default=6)
+    parser.add_argument("--days", type=int, default=60)
+    parser.add_argument("--crashes", type=int, default=200)
+    parser.add_argument("--seed", type=int, default=0)
+    args = parser.parse_args(argv)
+
+    tables = make_mock(args.rows, args.cols, args.days, args.crashes, seed=args.seed)
+    args.out.mkdir(parents=True, exist_ok=True)
+    for name, table in tables.items():
+        table.to_parquet(args.out / f"{name}.parquet", index=False)
+    print(f"wrote {args.out}: " + ", ".join(f"{len(t):,} {n}" for n, t in tables.items()))
+
+
+if __name__ == "__main__":
+    main()

@@ -22,6 +22,22 @@ from torch_geometric.nn import GCNConv, SAGEConv
 from .events import WEEK_SLOTS, Windows
 
 
+def resolve_device(choice: str = "cpu") -> torch.device:
+    """`auto` picks cuda, then mps, then cpu."""
+    if choice != "auto":
+        return torch.device(choice)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def on_device(batch: dict, device: torch.device) -> dict:
+    """Move a window batch; `origin` stays put since only indexing uses it."""
+    return {k: v.to(device) if k != "origin" else v for k, v in batch.items()}
+
+
 def last_observed(x: Tensor, x_mask: Tensor) -> Tensor:
     """Most recent observed speed per road, ``[batch, roads]``; zero if never seen."""
     speed = x[..., 0]
