@@ -101,20 +101,30 @@ def events():
 
 def test_event_windows_are_pre_crash_and_controls_are_held_out(events):
     """Both arms must be out-of-sample, or the control is not a placebo."""
-    _, sets, _, table, controls, event, control = events
+    tables, sets, _, table, controls, event, control = events
     train = sets["train"]
-    times = train.times
-    trained = np.zeros(train.values.shape, dtype=bool)
-    trained[train.origins.numpy()] = train.usable.numpy()
+    times, horizon = train.times, train.horizon
 
+    # A training window at origin `o` is fitted on `[o+1, o+horizon]`, so the
+    # fitted cells are those targets. Marking origins instead would let a
+    # control whose origin sits in the gap band -- but whose targets were
+    # fitted -- pass as held out.
+    trained = np.zeros(train.values.shape, dtype=bool)
+    origins, fitted = train.origins.numpy(), train.usable.numpy()
+    for step in range(1, horizon + 1):
+        trained[origins + step] |= fitted
+
+    # `table.crash_time` is the floored bin stamp, so asserting against it
+    # compares the arithmetic with itself. Join the reported time back instead.
+    reported = tables["crashes"].set_index("crash_record_id")["crash_time"]
+    bin_width = pd.Timedelta(FREQ)
     for row in table.head(40).itertuples():
-        # Checked against wall-clock time, not against the arithmetic that built it:
-        # the last input bin must end at or before the crash.
-        assert times[row.origin] < row.crash_time
-        assert not trained[row.origin, row.road]
+        # The last input bin must *end* at or before the reported crash.
+        assert times[row.origin] + bin_width <= pd.Timestamp(reported[row.crash_record_id])
+        assert not trained[row.origin + 1 : row.origin + 1 + horizon, row.road].any()
     for row in controls.head(40).itertuples():
         # A control the model was fitted on would report in-sample residuals.
-        assert not trained[row.origin, row.road]
+        assert not trained[row.origin + 1 : row.origin + 1 + horizon, row.road].any()
 
     # One window per crash; repeating it per control would fake the intervals.
     assert len(event) == table.crash_record_id.nunique()

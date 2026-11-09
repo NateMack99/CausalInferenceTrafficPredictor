@@ -100,6 +100,9 @@ Estimate how traffic accidents change road speeds **on the affected road and on 
 - [ ] Report every estimate over multiple seeds and multiple control draws.
 - [ ] Add a comparison script for results across models, seeds, and matching configurations.
 - [ ] Add regression tests that fail on temporal, event, or control leakage.
+- [ ] **Decide what a 0.0 mph speed means.** 0 mph is 15x more common than 1 mph (16,623 vs 1,135 rows), which looks like a sentinel, but zeros are isolated single bins across 821 of 879 segments, which looks real. `docs/data.md` currently counts zero as a valid observation. 98 crash rows and 66 control rows at exactly 0.0 carry **31% of the pooled effect** (-0.430 with, -0.296 without). Resolve before any effect estimate is published.
+- [ ] Mask crash-contaminated cells in `x`, not just `y`. About 18% of usable training targets read a crash-affected road inside the receptive field, and `--exposure-hops` cannot fix it (see `docs/architecture.md`).
+- [ ] Free the control pool from the last 30% of the calendar. Any training-period candidate is rejected by construction, so controls come from val+test while 71% of crash rows come from the training period; restricting the crash arm to the same period moves the estimate -0.430 to -0.466. Rolling-origin or k-fold training would remove the asymmetry.
 - [ ] Decide whether monitored segments joined by unmonitored streets should be adjacent; 84 roads (9.6%) sit outside the largest component.
 - [ ] Specify the semi-synthetic benchmark before building it: injection, ground-truth storage, recovery scoring.
 

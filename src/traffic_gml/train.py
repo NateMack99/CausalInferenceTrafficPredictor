@@ -185,8 +185,9 @@ def main(argv: list[str] | None = None) -> dict:
 
     if args.model in CONVS and args.model != "mlp" and args.exposure_hops < args.layers:
         print(
-            f"warning: {args.layers} layers read {args.layers} hops but crash masking covers "
-            f"{args.exposure_hops}; raise --exposure-hops or expect contaminated neighbour inputs"
+            f"note: {args.layers} layers read {args.layers} hops but crash masking covers "
+            f"{args.exposure_hops}. Masking only removes contaminated *targets*; `x` carries "
+            "the whole grid, so some inputs touch crash cells at any setting of this flag"
         )
     model = build_model(args.model, sets["train"], args.hidden, args.layers, args.dropout)
     history = fit(

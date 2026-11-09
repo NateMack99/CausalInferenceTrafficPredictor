@@ -120,6 +120,18 @@ Spillover feasibility: of 2,529 events, 2,437 (96.4%) have a 1-hop neighbour
 observed in at least 3 of 6 post bins; 1,459 (57.7%) have one observed in every
 post bin with a history to forecast from, and 1,628 (64.4%) at 2 hops.
 
+**Known issues found after this baseline was frozen** (none rerun; the first two
+are immaterial at this scale, the third is not):
+
+- Control admissibility marked window *origins* rather than the cells a window
+  was fitted on, so 22 of 4,813 control pairs shared a fitted cell. Fixed; the
+  pooled estimate moves by 0.001 mph and the sample becomes 2,527 events / 4,791
+  controls.
+- `x` is not masked for crash contamination, only `y`.
+- 98 crash rows and 66 control rows have an observed speed of exactly 0.0 mph and
+  carry **31% of the pooled effect**: without them it is −0.296, not −0.430.
+  Whether 0.0 is a sentinel or real standstill is unresolved.
+
 **What this baseline does not establish:** the controlled gcn–mlp gap is 0.022 mph
 on one seed, so no graph advantage is shown; effects are crash-segment only, so
 nothing here measures spillover; and the estimate moves with the control draw

@@ -124,10 +124,10 @@ def event_datasets(
     placebo rather than a flattering one:
 
     - a control is the same road at the same slot of the week in another week,
-      crash-free across its whole span, **and never a window the model trained
-      on**. Otherwise the control arm reports in-sample residuals against the
-      event arm's out-of-sample ones, and part of the gap between them is just
-      the model fitting its own training data.
+      crash-free across its whole span, and **none of its target bins may be a
+      cell the model was fitted on**. Otherwise the control arm reports in-sample
+      residuals against the event arm's out-of-sample ones, and part of the gap
+      between them is just the model fitting its own training data.
     - an event's pre-crash lag must be crash-free too, so an earlier crash on
       the same road cannot depress the history the forecast is made from.
 
@@ -148,8 +148,14 @@ def event_datasets(
     if len(segment_ids) != reference.num_roads:
         raise ValueError("segment_ids does not match the grid these windows were built on")
 
+    # Cells the model was fitted on are the *targets* of training windows, not
+    # their origins: a window at origin `o` learns from `[o+1, o+horizon]`.
+    # Marking origins let a control whose own targets had been fitted pass the
+    # check, because its origin fell in the gap band while its targets did not.
     trained = np.zeros(values.shape, dtype=bool)
-    trained[reference.origins.numpy()] = reference.usable.numpy()
+    origins, fitted = reference.origins.numpy(), reference.usable.numpy()
+    for step in range(1, horizon + 1):
+        trained[origins + step] |= fitted
 
     bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)
@@ -174,7 +180,7 @@ def event_datasets(
             if abs(t - origin) >= history + horizon
             and t - history + 1 >= 0
             and t + horizon < n_bins
-            and not trained[t, road]
+            and not trained[t + 1 : t + 1 + horizon, road].any()
             and clean[t - history + 1 : t + horizon + 1, road].all()
             and np.isfinite(values[t + 1 : t + 1 + horizon, road]).any()
         ]
