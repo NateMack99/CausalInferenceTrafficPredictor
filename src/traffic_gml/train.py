@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +34,21 @@ def data_version(tables: dict, path: Path) -> dict:
         "rows": {name: int(len(table)) for name, table in tables.items()},
         "span": [str(times.min()), str(times.max())],
     }
+
+
+def code_version() -> str:
+    """Git description of the code behind a run; suffixed `-dirty` if uncommitted."""
+    try:
+        done = subprocess.run(
+            ["git", "describe", "--always", "--dirty"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return done.stdout.strip()
 
 
 def set_seed(seed: int) -> None:
@@ -196,6 +212,7 @@ def main(argv: list[str] | None = None) -> dict:
     run.mkdir(parents=True, exist_ok=True)
     (run / "args.json").write_text(json.dumps(vars(args), indent=2, default=str) + "\n")
     record = {
+        "code": code_version(),
         "data": data_version(tables, args.data),
         "graph": {"edges": int(edge_index.size(1)), "exposure_hops": args.exposure_hops},
         "normalizer": {"mean": sets["train"].mean, "std": sets["train"].std},

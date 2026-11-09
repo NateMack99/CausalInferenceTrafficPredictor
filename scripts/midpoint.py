@@ -35,7 +35,7 @@ from traffic_gml.evaluate import (
 )
 from traffic_gml.events import build_windows, event_datasets, processed_tables, write_processed
 from traffic_gml.models import BASELINES, CONVS, build_model
-from traffic_gml.train import DEFAULTS, data_version, fit, set_seed
+from traffic_gml.train import DEFAULTS, code_version, data_version, fit, set_seed
 
 MODELS = (*BASELINES, *CONVS)
 
@@ -241,6 +241,7 @@ def main(argv: list[str] | None = None) -> dict:
         json.dumps(
             {
                 "args": {k: str(v) for k, v in vars(args).items()},
+                "code": code_version(),
                 "data": data_version(tables, args.data or args.speeds),
                 "roads": train.num_roads,
                 "edges": int(edge_index.size(1)),
