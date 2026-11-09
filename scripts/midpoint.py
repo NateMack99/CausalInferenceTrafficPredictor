@@ -194,12 +194,16 @@ def main(argv: list[str] | None = None) -> dict:
         train, tables["crashes"], segment_ids, controls=args.controls, seed=args.seed
     )
     model = fitted[args.effect_model]
+    # One key row per window, and `validate` so a future many-to-many merge
+    # fails loudly instead of silently duplicating effect rows.
     keys = ["origin", "road", "crash_record_id", "segment_id"]
+    event_keys = table[keys].drop_duplicates(subset=["origin", "road"])
+    control_keys = control_table[keys].drop_duplicates(subset=["origin", "road"])
     event_effects = effects(model, event, edge_index, device=args.device).merge(
-        table[keys], on=["origin", "road"]
+        event_keys, on=["origin", "road"], validate="m:1"
     )
     control_effects = effects(model, control, edge_index, device=args.device).merge(
-        control_table[keys], on=["origin", "road"]
+        control_keys, on=["origin", "road"], validate="m:1"
     )
     print(
         f"{len(table):,} crashes with a crash-free history and {len(control_table):,} "

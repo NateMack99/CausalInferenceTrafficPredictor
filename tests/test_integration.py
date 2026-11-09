@@ -118,7 +118,10 @@ def test_event_windows_are_pre_crash_and_controls_are_held_out(events):
 
     # One window per crash; repeating it per control would fake the intervals.
     assert len(event) == table.crash_record_id.nunique()
-    assert len(control) == len(controls)
+    # Both arms hold one window per (origin, road): a repeated window is the
+    # same speeds scored twice, which narrows the interval for free.
+    assert len(event) == len(table.drop_duplicates(subset=["origin", "road"]))
+    assert len(control) == len(controls.drop_duplicates(subset=["origin", "road"]))
     # Each window scores exactly the one road the crash happened on.
     assert event.usable.sum(dim=1).unique().tolist() == [1]
     assert control.usable.sum(dim=1).unique().tolist() == [1]
@@ -167,3 +170,20 @@ def test_grid_coverage_is_a_fraction(pipeline):
     sets, _ = build_windows(tables, history=HISTORY, horizon=HORIZON)
     # Segments 10, 20 and 30 are observed at every bin; segment 40 never became a road.
     assert grid_coverage(sets["train"]) == pytest.approx(1.0)
+
+
+def test_two_crashes_in_one_bin_on_one_road_are_one_event(events):
+    """One disturbance, counted once -- otherwise that road is double-weighted."""
+    tables, sets, _, table, _, event, _ = events
+    ids = np.sort(tables["segments"].segment_id.unique())
+
+    first = table.iloc[0]
+    twin = tables["crashes"].loc[tables["crashes"].crash_record_id == first.crash_record_id].copy()
+    assert len(twin) == 1
+    twin["crash_record_id"] = twin["crash_record_id"] + "-twin"
+    doubled = pd.concat([tables["crashes"], twin], ignore_index=True)
+
+    again, _, event_again, _ = event_datasets(sets["train"], doubled, ids, seed=0)
+    assert len(event_again) == len(event)
+    assert not again.duplicated(subset=["origin", "road"]).any()
+    assert "-twin" not in set(again.crash_record_id)

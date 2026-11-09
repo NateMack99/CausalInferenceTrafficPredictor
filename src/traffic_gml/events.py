@@ -131,6 +131,11 @@ def event_datasets(
     - an event's pre-crash lag must be crash-free too, so an earlier crash on
       the same road cannot depress the history the forecast is made from.
 
+    Several crash reports can land in one bin on one road. That is one
+    disturbance observed once, not several events: the window and its speeds
+    would be identical, so repeating it would weight that road more heavily and
+    narrow the interval without adding information. Only the first is kept.
+
     Returns one row per crash, one row per (crash, control) pair, and the two
     window sets. The event set holds one window per crash: repeating it once
     per control would shrink the intervals without adding any information.
@@ -149,16 +154,19 @@ def event_datasets(
     bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)
 
-    events, pairs = [], []
+    events, pairs, seen = [], [], set()
     for record, crash_bin, road, known in zip(
         crashes["crash_record_id"], bins, roads, on_grid, strict=True
     ):
         origin = int(crash_bin) - 1
         if not known or origin - history + 1 < 0 or origin + horizon >= n_bins:
             continue
+        if (origin, int(road)) in seen:
+            continue
         lag = slice(origin - history + 1, origin + 1)
         if not clean[lag, road].all() or not np.isfinite(values[lag, road]).any():
             continue
+        seen.add((origin, int(road)))
 
         usable_controls = [
             int(t)
@@ -192,9 +200,10 @@ def event_datasets(
         )
 
     def windows(frame: pd.DataFrame) -> Windows:
-        only = np.zeros((len(frame), reference.num_roads), dtype=bool)
-        only[np.arange(len(frame)), frame["road"].to_numpy()] = True
-        return reference.at(frame["origin"].to_numpy(), only)
+        unique = frame.drop_duplicates(subset=["origin", "road"])
+        only = np.zeros((len(unique), reference.num_roads), dtype=bool)
+        only[np.arange(len(unique)), unique["road"].to_numpy()] = True
+        return reference.at(unique["origin"].to_numpy(), only)
 
     return table, control_table, windows(table), windows(control_table)
 
