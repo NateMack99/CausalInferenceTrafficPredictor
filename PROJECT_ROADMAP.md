@@ -15,7 +15,7 @@ Estimate how traffic accidents change road speeds **on the affected road and on 
 
 ## Sprint 1 — Initial Setup & Midpoint Review
 
-**November 6–9 · 3 PRs · Assigned**  
+**November 6–9 · 3 PRs · Complete**  
 **Goal:** Collect data, build the road graph, and establish baseline modeling code.
 
 ### PR #1 — Traffic Data — Nate
@@ -23,11 +23,11 @@ Estimate how traffic accidents change road speeds **on the affected road and on 
 **Purpose:** Collect and prepare the real traffic data needed to study how accidents affect road speeds.
 
 **Tasks**
-- [ ] Download Chicago crash and traffic-speed datasets.
-- [ ] Inspect columns, missing values, and time coverage.
-- [ ] Choose a study area with good speed coverage.
-- [ ] Clean data and save CSV/Parquet files.
-- [ ] Create a table of road speeds by segment and timestamp.
+- [x] Download Chicago crash and traffic-speed datasets.
+- [x] Inspect columns, missing values, and time coverage.
+- [x] Choose a study area with good speed coverage.
+- [x] Clean data and save CSV/Parquet files.
+- [x] Create a table of road speeds by segment and timestamp.
 
 **Done when:** Cleaned crash and speed datasets are available for the rest of the project.
 
@@ -36,11 +36,11 @@ Estimate how traffic accidents change road speeds **on the affected road and on 
 **Purpose:** Represent Chicago roads as a network so models can learn how disruptions spread between connected road segments.
 
 **Tasks**
-- [ ] Build a road-segment graph using NetworkX.
-- [ ] Connect segments that share navigable intersections.
-- [ ] Match accidents to road segments.
-- [ ] Compute degree and betweenness centrality.
-- [ ] Create a map showing roads and accident locations.
+- [x] Build a road-segment graph using NetworkX.
+- [x] Connect segments that share navigable intersections.
+- [x] Match accidents to road segments.
+- [x] Compute degree and betweenness centrality.
+- [x] Create a map showing roads and accident locations.
 
 **Done when:** A usable road graph exists, with accidents mapped to graph nodes.
 
@@ -49,56 +49,61 @@ Estimate how traffic accidents change road speeds **on the affected road and on 
 **Purpose:** Establish reusable training code and simple models to compare with the later spatiotemporal GNN.
 
 **Tasks**
-- [ ] Set up Python, PyTorch, and PyTorch Geometric.
-- [ ] Implement a simple speed-prediction baseline.
-- [ ] Implement a basic GCN or GraphSAGE.
-- [ ] Define model inputs and prediction targets.
-- [ ] Set up training scripts and MAE/RMSE evaluation.
+- [x] Set up Python, PyTorch, and PyTorch Geometric.
+- [x] Implement a simple speed-prediction baseline.
+- [x] Implement a basic GCN or GraphSAGE.
+- [x] Define model inputs and prediction targets.
+- [x] Set up training scripts and MAE/RMSE evaluation.
 
 **Done when:** A baseline and basic GNN can run on sample data and produce predictions.
 
 ### Shared midpoint tasks
 
-- [ ] Agree on consistent road IDs, timestamps, and data interfaces.
-- [ ] Join the available traffic, accident, and road graph data.
-- [ ] Create example before/after accident windows and accident-free controls.
-- [ ] Run initial baseline/GNN experiments if integration is ready.
-- [ ] Prepare data coverage visualizations and the **November 9 midpoint report**.
+- [x] Agree on consistent road IDs, timestamps, and data interfaces.
+- [x] Join the available traffic, accident, and road graph data.
+- [x] Create example before/after accident windows and accident-free controls.
+- [x] Run initial baseline/GNN experiments if integration is ready.
+- [x] Prepare data coverage visualizations and the **November 9 midpoint report**.
 
-**Sprint deliverable:** Initial datasets, road network, runnable model code, and midpoint review. The fully integrated pipeline is completed in Sprint 2.
+**Sprint deliverable:** Initial datasets, road network, runnable model code, and midpoint review. **Delivered**, plus an integrated end-to-end pipeline ahead of schedule: the three-way join, crash/control event windows, five forecasters on identical splits, the placebo-corrected effect estimate, and coverage reporting. The frozen baseline is recorded in [experiments.md](docs/experiments.md).
 
 ---
 
-## Sprint 2 — Integration & Spatiotemporal Modeling
+## Sprint 2 — Data Expansion & Spatiotemporal Modeling
 
 **November 10–17 · 3 PRs · Unassigned**  
-**Goal:** Build an end-to-end pipeline for forecasting what traffic speeds would be without accidents.
+**Goal:** Lift the sample and control-supply limits the midpoint exposed, then train the spatiotemporal model. The end-to-end pipeline itself landed in Sprint 1.
 
-### PR #4 — Causal Dataset Pipeline
+### PR #4 — Data Expansion & Control Matching
 
-**Purpose:** Turn traffic and crash records into consistent examples for model training and accident-effect estimation.
+**Purpose:** Remove the sample-size and control-supply limits that cap the midpoint estimates.
 
-**Tasks**
-- [ ] Join traffic speeds and accidents using consistent road IDs and timestamps.
-- [ ] Create speed windows before and after accidents.
-- [ ] Identify comparable accident-free windows for training and controls.
-- [ ] Create train/validation/test splits without temporal or event leakage.
-- [ ] Handle missing observations and overlapping accidents.
-
-**Done when:** Accident and accident-free windows can be loaded reliably for experiments.
-
-### PR #5 — Graph Integration & Model Features
-
-**Purpose:** Link traffic observations to the road graph so models can use speed histories from connected roads.
+*The original join/window/split tasks were delivered during Sprint 1 integration; see [experiments.md](docs/experiments.md).*
 
 **Tasks**
-- [ ] Align graph nodes with traffic-speed and accident records.
-- [ ] Identify crash roads and their 1-hop and 2-hop neighbors.
-- [ ] Prepare historical speed features and observation masks.
-- [ ] Convert road connections and features into PyTorch Geometric tensors.
-- [ ] Verify that graph edges and feature indices match.
+- [ ] Extend the study period beyond March–April 2025. **No download needed:** 338 days of speeds (2025-01-01 to 2025-12-06, 78 MB) and 109,121 crashes are already local. The midpoint used 61 days and 17,658 crashes, so this is a `--window` change.
+- [ ] Re-measure control supply; only ~1.9 of 5 requested controls per crash exist over two months. Matching needs same-road, same-week-slot candidates, so ~8 candidate weeks becomes ~48 over a full year.
+- [ ] Budget the compute: ~5.5x the data at ~20 min per CPU run makes a GPU run worth setting up (`--device cuda` on Rivanna).
+- [ ] Loosen or tier the control-matching rule (nearby week slots, comparable roads) and test sensitivity.
+- [ ] Measure how long speeds stay depressed after a crash instead of assuming `horizon` bins.
+- [ ] Recover events lost to a contaminated pre-crash history (693 of 3,651, the largest single exclusion).
 
-**Done when:** The shared dataset can be passed directly to graph models.
+**Done when:** The analysis sample and the controls per crash both grow, and the effect estimate's sensitivity to the control draw is quantified rather than assumed.
+
+### PR #5 — Experiment Protocol & Leakage Guards
+
+**Purpose:** Make results comparable across runs and prove the splits are clean.
+
+*Graph/feature alignment and the PyG tensor contract were delivered in Sprint 1.*
+
+**Tasks**
+- [ ] Report every estimate over multiple seeds and multiple control draws.
+- [ ] Add a comparison script for results across models, seeds, and matching configurations.
+- [ ] Add regression tests that fail on temporal, event, or control leakage.
+- [ ] Decide whether monitored segments joined by unmonitored streets should be adjacent; 84 roads (9.6%) sit outside the largest component.
+- [ ] Specify the semi-synthetic benchmark before building it: injection, ground-truth storage, recovery scoring.
+
+**Done when:** Any two runs can be compared on the same splits, and leakage is tested rather than argued.
 
 ### PR #6 — Spatiotemporal Counterfactual Forecasting
 
@@ -113,7 +118,7 @@ Estimate how traffic accidents change road speeds **on the affected road and on 
 
 **Done when:** Trained models produce expected no-accident speed forecasts on held-out data.
 
-**Sprint deliverable:** An integrated dataset and working non-graph, basic GNN, and spatiotemporal forecasting experiments.
+**Sprint deliverable:** A larger sample with better-supplied controls, a reproducible experiment protocol, and spatiotemporal forecasting compared against the frozen midpoint baseline.
 
 ---
 
@@ -158,6 +163,8 @@ Estimate how traffic accidents change road speeds **on the affected road and on 
 - [ ] Evaluate semi-synthetic effect recovery using treatment-effect MAE/RMSE.
 - [ ] Compare non-graph, basic GNN, and spatiotemporal GNN estimates.
 - [ ] Report forecasting accuracy separately from treatment-effect accuracy.
+- [ ] Check the effect estimate is not forecaster-dependent; `gcn` was chosen while `sage` forecast better.
+- [ ] Compare available-case against a fixed cohort observed at every horizon; per-bin `n` varies 1,782–1,846, so sample composition shifts with horizon.
 
 **Done when:** Models can be compared on recovery of known effects as well as speed forecasting performance.
 
@@ -193,6 +200,8 @@ Estimate how traffic accidents change road speeds **on the affected road and on 
 - [ ] Compare upstream and downstream propagation where feasible.
 - [ ] Test original, shuffled/removed-edge, and no-graph settings.
 - [ ] Examine whether road centrality relates to disruption severity.
+- [ ] Test effect heterogeneity by crash severity, time of day, and pre-crash congestion; a pooled mean can hide this.
+- [ ] Budget for the smaller spillover sample: 1,459 events have a usable 1-hop trajectory, 1,628 at 2 hops, against 2,529 for direct effects.
 
 **Done when:** We have spillover results and evidence about the value of graph connectivity.
 
@@ -206,6 +215,7 @@ Estimate how traffic accidents change road speeds **on the affected road and on 
 - [ ] Test temporal-component and node-feature ablations.
 - [ ] Summarize speed forecasting results separately from causal effect recovery.
 - [ ] Generate final tables, figures, and commands to reproduce experiments.
+- [ ] Do not treat the 3.03M road-time test targets as independent; windows overlap and roads correlate. Use paired comparisons on identical test periods.
 
 **Done when:** Main experiments are complete and outputs are ready for the final report.
 

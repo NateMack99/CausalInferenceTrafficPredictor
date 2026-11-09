@@ -46,6 +46,7 @@ Point `--data` at `data/processed` once the collection and graph steps have run.
 - [Architecture and interfaces](docs/architecture.md)
 - [Data sources and schemas](docs/data.md)
 - [Research methodology](docs/methodology.md)
+- [Experiment settings, exclusion rules, frozen baseline](docs/experiments.md)
 - [Guidelines for coding agents](AGENTS.md)
 
 ## Research and paper
