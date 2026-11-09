@@ -13,19 +13,29 @@ bash scripts/setup.sh
 Setup creates `.venv` with uv if needed, syncs the locked Python environment, verifies your Chicago portal token,
 and optionally downloads and prepares the data.
 
-Modeling (PR #3) runs without real data, on mock tables written in the processed schema:
+Modeling runs without real data, on mock tables written in the processed schema:
 
 ```bash
-uv run python scripts/make_mock_data.py --out data/mock
-uv run python scripts/run_experiment.py --data data/mock --model gcn --seed 42
+uv run python -m traffic_gml.mock --out data/mock
+uv run python -m traffic_gml.train --data data/mock --model gcn --seed 42
 ```
 
-Point `--data` at `data/processed` once PR #1 and PR #2 land. `--model` takes `persistence`, `historical_mean`, `mlp`, `gcn` or `sage`; see `--help` for the window, model and optimisation flags. Each run records its arguments and metrics under `outputs/`. The dataset and causal-evaluation CLI commands will be added as their roadmap PRs are implemented.
+On real data, build the road graph first, then run the pipeline:
+
+```bash
+uv run python scripts/build_graph.py --no-fetch \
+    --crash-window 2025-03-01 2025-05-01 --speed-window 2025-03-01 2025-05-01
+uv run python scripts/midpoint.py --speeds data/parquet/chicago-speeds \
+    --graph outputs/<stem>_segments.graphml --crashes outputs/<stem>_crash_segments.csv \
+    --window 2025-03-01 2025-05-01 --static-features length_m degree betweenness
+```
+
+Point `--data` at `data/processed` once the collection and graph steps have run. `--model` takes `persistence`, `historical_mean`, `mlp`, `gcn` or `sage`; see `--help` for the window, model and optimisation flags. Each run records its arguments and metrics under `outputs/`. `scripts/midpoint.py` runs the whole pipeline: it joins the speed, crash and road-graph outputs into those tables, trains every model on identical splits, estimates crash effects against matched accident-free controls, and writes the figures and `results.csv` under `outputs/midpoint/`.
 
 ## Layout
 
 - `src/traffic_gml/` — reusable data, graph, model, and evaluation code
-- `scripts/` — thin command-line entry points (added with features)
+- `scripts/` — command-line entry points for collection, the road graph, and the midpoint run
 - `tests/` — small, offline tests
 - `docs/` — architecture, data contracts, and methodology
 - `data/`, `outputs/` — local datasets and generated results; not committed
@@ -36,10 +46,11 @@ Point `--data` at `data/processed` once PR #1 and PR #2 land. `--model` takes `p
 - [Architecture and interfaces](docs/architecture.md)
 - [Data sources and schemas](docs/data.md)
 - [Research methodology](docs/methodology.md)
+- [Experiment settings, exclusion rules, frozen baseline](docs/experiments.md)
 - [Guidelines for coding agents](AGENTS.md)
 
 ## Research and paper
 
-Keep train/test event windows separate, and never use post-accident measurements as inputs to a no-accident forecast. Evaluate speed forecasts separately from estimated causal effects; real-world effect estimates require explicit assumptions and robustness checks.
+The research rules that constrain the code — no post-event inputs, accident-free training windows, forecast accuracy reported separately from causal effects — are in [AGENTS.md](AGENTS.md).
 
-**Overleaf is the source of truth for the paper.** Any LaTeX in Git is a convenience copy.
+Overleaf is the source of truth for the paper; see [PROJECT_ROADMAP.md](PROJECT_ROADMAP.md).
