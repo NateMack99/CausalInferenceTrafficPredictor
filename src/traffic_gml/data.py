@@ -1,4 +1,7 @@
-"""Convert a Chicago CSV to a typed, date-partitioned Parquet dataset.
+"""Retrieve, clean and align the Chicago speed and crash tables.
+
+`csv_to_parquet` converts a portal CSV to a date-partitioned Parquet dataset.
+`load_tables` and `align_grid` read the processed tables the models consume.
 
 Example: uv run python scripts/convert_to_parquet.py data/chicago-speeds.csv --kind speeds
 """
@@ -14,6 +17,91 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
+
+FREQ = "10min"
+BIN_MINUTES = 10
+#: The portal publishes naive local timestamps; rush hour is a local phenomenon.
+LOCAL_TZ = "America/Chicago"
+#: Required columns of the processed tables, per `docs/data.md`.
+TABLES: dict[str, tuple[str, ...]] = {
+    "speeds": ("segment_id", "time", "speed"),
+    "crashes": ("crash_record_id", "crash_time", "segment_id"),
+    "segments": ("segment_id",),
+    "edges": ("src", "dst"),
+}
+
+
+def load_tables(path: str | Path) -> dict[str, pd.DataFrame]:
+    tables: dict[str, pd.DataFrame] = {}
+    for name, columns in TABLES.items():
+        file = Path(path) / f"{name}.parquet"
+        if not file.exists():
+            raise FileNotFoundError(
+                f"{file} not found. Point --data at data/processed, or write mock "
+                f"tables with: uv run python -m traffic_gml.mock --out {Path(path)}"
+            )
+        tables[name] = pd.read_parquet(file)
+        missing = [c for c in columns if c not in tables[name].columns]
+        if missing:
+            raise ValueError(f"{file} is missing columns {missing}")
+    return tables
+
+
+def load_speed_dataset(path: str | Path, window: tuple[str, str] | None = None) -> pd.DataFrame:
+    """Read the date-partitioned speeds dataset into the long `speeds` table.
+
+    Returns `segment_id`, `time`, `speed`, with an unavailable speed as null.
+    `window` is `(start, end)` with `end` excluded, in the dataset's own naive
+    local time; the `date` partition is filtered too so whole days are pruned
+    before any file is opened.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found; run bash scripts/fetch_data.sh first")
+    dataset = ds.dataset(path, format="parquet", partitioning="hive")
+    selection = None
+    if window is not None:
+        start, end = (pd.Timestamp(edge) for edge in window)
+        if start.tzinfo or end.tzinfo or start >= end:
+            raise ValueError("use a nonempty [start, end) window of naive timestamps")
+        selection = (
+            (ds.field("date") >= start.date().isoformat())
+            & (ds.field("date") <= end.date().isoformat())
+            & (ds.field("timestamp") >= start.to_pydatetime())
+            & (ds.field("timestamp") < end.to_pydatetime())
+        )
+    table = dataset.to_table(columns=["segment_id", "timestamp", "speed"], filter=selection)
+    return table.to_pandas().rename(columns={"timestamp": "time"})
+
+
+def align_grid(
+    speeds: pd.DataFrame, segment_ids: np.ndarray
+) -> tuple[np.ndarray, pd.DatetimeIndex]:
+    """Speeds on a gap-free grid: `[bins, roads]` in mph, NaN where missing."""
+    frame = speeds[["segment_id", "time", "speed"]].copy()
+    frame["time"] = pd.to_datetime(frame["time"]).dt.floor(FREQ)
+    frame["speed"] = frame["speed"].astype("float32").where(frame["speed"] >= 0)
+    times = pd.date_range(frame["time"].min(), frame["time"].max(), freq=FREQ)
+    wide = (
+        frame.groupby(["time", "segment_id"])["speed"]
+        .mean()
+        .unstack("segment_id")
+        .reindex(index=times, columns=segment_ids)
+    )
+    return wide.to_numpy("float32", copy=True), times
+
+
+def local_time(times: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """Bins in local time.
+
+    The portal publishes naive local timestamps and `csv_to_parquet` keeps them
+    that way, so naive input is taken as already local. Only tz-aware input is
+    converted. Getting this backwards puts every clock feature hours out of
+    phase, so `train.py` prints the local span it inferred.
+    """
+    if times.tz is None:
+        return times
+    return times.tz_convert(LOCAL_TZ)
 
 
 def _timestamps(values: pd.Series) -> pd.Series:
