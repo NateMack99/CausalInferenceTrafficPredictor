@@ -13,6 +13,7 @@ data/*
 !data/*.sh
 !data/chicago-traffic-segments.json
 outputs/
+.vscode
 
 # Credentials (the Socrata app token the data PR will need)
 .env
