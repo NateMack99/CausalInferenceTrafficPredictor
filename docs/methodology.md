@@ -50,6 +50,12 @@ PR #3 plus `scripts/midpoint.py`:
 - Forecast MAE/RMSE in mph, overall and per horizon step (`evaluate.evaluate`).
 - `τ̂` per window, road and step (`evaluate.effects`), and the crash-minus-matched-control
   estimate with a 95% interval (`evaluate.placebo_corrected`).
+- Known-effect injection into real held-out crash-free windows (`synthetic.py`, PR #8):
+  a two-shape time profile, `hop_decay ** hop` spatial spread, uniform or
+  pre-congestion-dependent placement, and a truth table recording the effect realised in
+  the data rather than the one requested. Events are separated by their whole
+  lag-and-horizon span, because `x` carries the full `[history, roads]` grid and a nearby
+  event's injection would otherwise arrive as this event's input.
 - A nested coverage funnel ending at the analysis sample, and per-hop neighbour
   observability for that sample (`evaluate.coverage_funnel`, `evaluate.neighbour_coverage`).
   The funnel's stricter rows sit *inside* the analysis sample: requiring every bin observed
@@ -81,14 +87,14 @@ Not yet written (see `PROJECT_ROADMAP.md` for the sprint each belongs to):
 
 - **Matched causal baseline** — matched difference-in-differences / event study as a
   non-graph comparison, with pre-trend checks (`causal.py`, PR #7).
-- **Semi-synthetic benchmark** — defined below (`synthetic.py`, PR #8).
 - **Effect evaluation, robustness, ablations** — effect-recovery scoring, the checks
   listed under *Assumptions and limits*, and graph/no-graph, rewired-edge, history-length
   and horizon ablations (PRs #9–#12).
 
-## Semi-synthetic validation plan (core)
+## Semi-synthetic validation (core)
 
-This is the plan, not a validated result. Nothing below has been run.
+Steps 1–4 are implemented in `synthetic.py` (PR #8). Step 5, the scoring, is PR #9. No
+benchmark result on real data is recorded yet.
 
 1. Take **real accident-free windows**, held out from training.
 2. Inject **known** slowdowns on a chosen road and propagate them across connected roads,
@@ -103,6 +109,27 @@ This is the plan, not a validated result. Nothing below has been run.
 
 Recovering known injected effects is the main evidence that the estimator works; good
 forecasting accuracy on its own is not.
+
+### The identity that must not be reported as a result
+
+Because injection starts after the window origin, the input `x` is **identical** in the
+treated and untreated arms, so a forecaster returns the same prediction for both and
+
+```
+(y_treated − ŷ) − (y_untreated − ŷ) = y_treated − y_untreated
+```
+
+which is the injected truth itself. Scoring that difference gives an effect MAE of exactly
+0.000 mph for every model, including an untrained one — this was checked and it does.
+`tests/test_synthetic.py` pins the identity so it is recognised rather than celebrated.
+
+PR #9 therefore has to score the estimator the study actually has on real crashes: the
+residual against the no-disruption forecast, bias-corrected with matched controls drawn by
+the same rule as for real crashes. On the mock fixture that estimator gives an effect MAE
+near 1.8 mph where the degenerate one gives 0.000, which is the gap between measuring the
+estimator and measuring an algebraic identity. `synthetic.untreated_windows` stays useful
+as an **oracle control** — the forecaster's own bias on exactly the scored cells, something
+no real crash can offer — but it is a diagnostic, not half of an estimator.
 
 ## Assumptions and limits
 

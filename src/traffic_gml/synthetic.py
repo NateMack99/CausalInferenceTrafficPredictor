@@ -1,0 +1,305 @@
+"""Known disruptions injected into real crash-free windows (PR #8).
+
+This is the benchmark the whole study rests on: recovering a known effect is
+the evidence that the estimator works, and forecast accuracy is not. It is
+deliberately **not** `mock.py`, which fabricates speeds. Here the speeds are
+real and held out, and only the disruption is invented, so an estimator is
+scored against a truth that exists.
+
+The contract:
+
+- Untreated outcomes are the real observed speeds, kept unmodified in
+  `Disruptions.untreated`.
+- Injection starts at `origin + 1`, so the whole `history` span is untouched
+  and a forecaster reading the treated grid sees **exactly** the inputs it
+  would have seen untreated. The injected effect is never an input.
+- `Disruptions.truth` records the effect actually realised in the data, after
+  the floor at 0 mph, not the effect that was requested. A label that
+  disagrees with the array it describes would score every estimator wrong.
+- Events never overlap, and are separated by their whole lag-and-horizon span
+  across every road. A window's `x` is the full `[history, roads]` grid, so a
+  nearby event's injection would otherwise arrive as this event's input. That
+  caps how many events a split can hold, at roughly its length in bins over
+  `history + horizon`; `settings` records how many were asked for and how many
+  fit, and a short split silently yields fewer.
+
+Nothing here estimates anything. Scoring recovery against `truth` is PR #9.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+import torch
+from torch import Tensor
+
+from .data import BIN_MINUTES
+from .events import Windows
+from .graph import neighbourhood
+
+#: Time profiles. Both are driven by one `duration`, in bins.
+SHAPES = ("decay", "plateau")
+#: How an event's road is chosen. `congested` is the selection stress test.
+PLACEMENTS = ("uniform", "congested")
+#: Speeds cannot go negative; the realised effect is recorded after this floor.
+FLOOR = 0.0
+
+
+@dataclass
+class Disruptions:
+    """An injected benchmark and its ground truth.
+
+    `values` is the treated grid, `untreated` the real one it was copied from.
+    `events` is one row per disruption with the arguments that produced it;
+    `truth` is one row per observed affected cell, carrying the realised
+    effect. `effect_profile` and `settings` record what was asked for, so a
+    run is reproducible from this object alone.
+    """
+
+    values: np.ndarray
+    untreated: np.ndarray
+    events: pd.DataFrame
+    truth: pd.DataFrame
+    settings: dict
+
+
+def effect_profile(shape: str, horizon: int, duration: float) -> np.ndarray:
+    """Per-step multiplier on the hop-0 magnitude, length `horizon`.
+
+    `decay` halves every `duration` bins, so the disruption fades; `plateau`
+    holds full strength for `duration` bins and then stops. One parameter
+    drives both, which keeps the family small enough to report in a table.
+    """
+    if duration <= 0:
+        raise ValueError(f"duration must be positive, got {duration}")
+    step = np.arange(horizon, dtype="float64")
+    if shape == "decay":
+        return 0.5 ** (step / duration)
+    if shape == "plateau":
+        return (step < duration).astype("float64")
+    raise ValueError(f"unknown shape {shape!r}; choose from {SHAPES}")
+
+
+def _rings(edge_index: Tensor, num_roads: int, hops: int) -> list[list[np.ndarray]]:
+    """`rings[k][road]`: every road within `k` undirected hops, self included."""
+    reach = [neighbourhood(edge_index, num_roads, k) for k in range(hops + 1)]
+    return [[matrix[road].indices for road in range(num_roads)] for matrix in reach]
+
+
+def _pre_mean(series: np.ndarray) -> float:
+    """Mean of the observed pre-event speeds; `inf` when none were observed.
+
+    `inf` rather than `nan` so a candidate with no history sorts last and never
+    reaches the congested pool, without a warning from an all-missing slice.
+    """
+    finite = series[np.isfinite(series)]
+    return float(finite.mean()) if finite.size else float("inf")
+
+
+def inject(
+    reference: Windows,
+    edge_index: Tensor,
+    events: int = 200,
+    magnitude: tuple[float, float] = (4.0, 12.0),
+    hops: int = 2,
+    hop_decay: float = 0.45,
+    shape: str = "decay",
+    duration: float = 2.0,
+    placement: str = "uniform",
+    seed: int = 0,
+) -> Disruptions:
+    """Inject `events` known slowdowns into `reference`'s real crash-free windows.
+
+    Candidates are exactly the windows `reference` already marks usable, which
+    is the same bar a real crash event has to clear: crash-free across its lag
+    and target span, with an observed target. A candidate additionally needs an
+    observed pre-event history, or there is nothing to forecast from.
+
+    The slowdown is `magnitude` mph at the event road, `hop_decay ** hop` of
+    that on each ring out to `hops`, shaped over the horizon by `shape` and
+    `duration`. Pass `reference` as the **held-out** split: injecting into
+    windows a forecaster trained on measures memorisation, not recovery.
+
+    `placement="congested"` draws only from the third of candidates with the
+    lowest pre-event mean speed, so disruptions land on already-slow roads.
+    That is the selection pattern a matched estimator is supposed to survive,
+    and comparing it against `uniform` is how the study finds out whether it
+    does.
+    """
+    if placement not in PLACEMENTS:
+        raise ValueError(f"unknown placement {placement!r}; choose from {PLACEMENTS}")
+    low, high = magnitude
+    if low > high:
+        raise ValueError(f"magnitude must be (low, high), got {magnitude}")
+
+    rng = np.random.default_rng(seed)
+    untreated = reference.values.numpy()
+    values = untreated.copy()
+    history, horizon = reference.history, reference.horizon
+    observed = np.isfinite(untreated)
+    origins = reference.origins.numpy()
+    profile = effect_profile(shape, horizon, duration)
+
+    rings = _rings(edge_index, reference.num_roads, hops)
+
+    # Candidates are the reference's own usable (window, road) pairs.
+    window_of, road_of = reference.usable.numpy().nonzero()
+    if not len(window_of):
+        raise ValueError("the reference split has no usable (window, road) pair to inject into")
+
+    # Rank a subsample rather than every candidate: on real data `usable` holds
+    # millions of pairs and only the order of a few thousand can matter.
+    pool = rng.permutation(len(window_of))[: max(events * 50, events)]
+    pre_mean = np.array(
+        [
+            _pre_mean(untreated[origins[w] - history + 1 : origins[w] + 1, r])
+            for w, r in zip(window_of[pool], road_of[pool], strict=True)
+        ]
+    )
+    if placement == "congested":
+        slowest = np.argsort(pre_mean, kind="stable")[: max(len(pool) // 3, 1)]
+        order = pool[rng.permutation(slowest)]
+    else:
+        order = pool
+
+    # Reserved bins, across every road. A window's `x` carries the whole
+    # `[history, roads]` grid, so an injection anywhere in another event's lag
+    # span becomes one of that event's inputs. Separating events by their full
+    # lag-and-horizon span is the one rule that rules this out everywhere,
+    # rather than only outside the current model's receptive field.
+    claimed = np.zeros(values.shape[0], dtype=bool)
+    rows: list[dict] = []
+    chosen: list[dict] = []
+
+    for index in order:
+        if len(chosen) == events:
+            break
+        window, road = int(window_of[index]), int(road_of[index])
+        origin = int(origins[window])
+        if not observed[origin - history + 1 : origin + 1, road].any():
+            continue
+
+        guard = slice(origin - history + 1, origin + 1 + horizon)
+        if claimed[guard].any():
+            continue
+        claimed[guard] = True
+
+        size = float(rng.uniform(low, high))
+        event_id = f"SYN{len(chosen):05d}"
+        for hop in range(hops + 1):
+            # Exclusive rings, so a road carries one hop label and one effect.
+            ring = rings[hop][road]
+            if hop:
+                ring = np.setdiff1d(ring, rings[hop - 1][road])
+            if not len(ring):
+                continue
+            wanted = size * hop_decay**hop * profile
+            for step, want in enumerate(wanted):
+                bin_ = origin + 1 + step
+                seen = ring[observed[bin_, ring]]
+                if not len(seen) or want <= 0:
+                    continue
+                before = untreated[bin_, seen]
+                after = np.maximum(before - want, FLOOR)
+                values[bin_, seen] = after
+                rows += [
+                    {
+                        "event_id": event_id,
+                        "origin": origin,
+                        "road": int(r),
+                        "hop": hop,
+                        "minutes": (step + 1) * BIN_MINUTES,
+                        "untreated": float(u),
+                        "treated": float(v),
+                        # Realised, not requested: the floor can clip a slowdown.
+                        "true_effect": float(v - u),
+                        "requested_effect": -float(want),
+                    }
+                    for r, u, v in zip(seen, before, after, strict=True)
+                ]
+        chosen.append(
+            {
+                "event_id": event_id,
+                "origin": origin,
+                "road": road,
+                "magnitude": size,
+                "shape": shape,
+                "duration": duration,
+                "hop_decay": hop_decay,
+                "hops": hops,
+                "placement": placement,
+            }
+        )
+
+    if not chosen:
+        raise ValueError(
+            "no candidate window could take a disruption; lower --events or widen the split"
+        )
+
+    settings = {
+        "events": len(chosen),
+        "requested_events": events,
+        "magnitude": [low, high],
+        "hops": hops,
+        "hop_decay": hop_decay,
+        "shape": shape,
+        "duration": duration,
+        "placement": placement,
+        "seed": seed,
+        "floor_mph": FLOOR,
+        "profile": [round(float(p), 6) for p in profile],
+    }
+    return Disruptions(
+        values=values,
+        untreated=untreated,
+        events=pd.DataFrame(chosen),
+        truth=pd.DataFrame(rows),
+        settings=settings,
+    )
+
+
+def treated_windows(reference: Windows, disruptions: Disruptions) -> Windows:
+    """Event windows over the treated grid, scoring every road a disruption reached.
+
+    The returned set shares `reference`'s normalisation statistics and clock
+    features, so a model trained on `reference` can be applied directly. Only
+    cells that carry a known effect are unmasked, which is what makes the
+    per-hop recovery in PR #9 readable.
+    """
+    events = disruptions.events
+    usable = np.zeros((len(events), reference.num_roads), dtype=bool)
+    position = {event: i for i, event in enumerate(events["event_id"])}
+    truth = disruptions.truth
+    usable[[position[e] for e in truth["event_id"]], truth["road"].to_numpy()] = True
+
+    data = reference.at(events["origin"].to_numpy(), usable)
+    data.values = torch.from_numpy(disruptions.values)
+    return data
+
+
+def untreated_windows(reference: Windows, disruptions: Disruptions) -> Windows:
+    """The same windows over the untouched grid: the no-disruption outcomes.
+
+    **Do not difference these residuals against the treated ones and call the
+    result an effect estimate.** Injection leaves `x` identical in both arms by
+    construction, so a forecaster returns the same prediction for each, and
+
+        (y_treated - ŷ) - (y_untreated - ŷ) = y_treated - y_untreated
+
+    which is the injected truth itself. Effect MAE against `truth` then comes
+    out at exactly 0.000 mph and has measured nothing — the prediction has
+    cancelled out. This was checked, and it does.
+
+    What these windows are for is the forecaster's own bias on the very cells
+    the benchmark scores: `y_untreated - ŷ` is an oracle control, available
+    here and never available for a real crash. PR #9 has to score the estimator
+    the study actually has — the residual against the no-disruption forecast,
+    bias-corrected with matched controls drawn the same way as for real crashes
+    — and may use this arm only to show how much of the remaining error is
+    forecast bias rather than estimator bias.
+    """
+    data = treated_windows(reference, disruptions)
+    data.values = torch.from_numpy(disruptions.untreated)
+    return data
