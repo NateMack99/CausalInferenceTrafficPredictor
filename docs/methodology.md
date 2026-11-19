@@ -39,6 +39,11 @@ PR #3 plus `scripts/midpoint.py`:
 - Forecasters `persistence`, `historical_mean`, `mlp`, `gcn`, `sage` (`models.py`), all
   trained on identical splits with the same seed. `mlp` is `gcn` without edges, so that
   pair isolates the graph; `sage` has more parameters per layer.
+- Spatiotemporal `stgcn` and its matched no-edge twin `tgru` (PR #6): a per-bin encoder,
+  one GRU down the history, then message passing on the final hidden state. The two have
+  identical parameter counts, so `stgcn` against `tgru` isolates the graph for the
+  temporal models. Comparing `stgcn` with `mlp` instead mixes the edges with the temporal
+  encoder and is not a graph result.
 - Crash-free window construction with chronological, gap-separated train/val/test splits
   and crash masking that spreads `--exposure-hops` across the graph and `--horizon` bins
   forward (`events.py`). Ten-minute bins; see `train.py --help` for the window flags.
@@ -53,7 +58,10 @@ PR #3 plus `scripts/midpoint.py`:
 
 Limits of what exists: effects are measured on the crash segment only, intervals are
 event-level and not clustered, and a crash is assumed to contaminate for `horizon` bins
-after it is reported — an assumption, not a measurement.
+after it is reported — an assumption, not a measurement. No spatiotemporal result on real
+data is recorded yet: `stgcn` and `tgru` are implemented and run reproducibly, but only on
+the mock fixture, which couples roads solely through the injected spillover that
+crash-free masking then removes, so no graph-versus-no-graph gap may be read off it.
 
 The estimate is also sensitive to **which** accident-free windows are drawn as controls.
 Redrawing them moved per-bin estimates by up to 0.16 mph and changed how many bins
@@ -71,8 +79,6 @@ outputs, not validated effects.
 
 Not yet written (see `PROJECT_ROADMAP.md` for the sprint each belongs to):
 
-- **Spatiotemporal GNN** — message passing plus a GRU or temporal convolution, trained on
-  the same accident-free windows and compared on the same splits (PR #6).
 - **Matched causal baseline** — matched difference-in-differences / event study as a
   non-graph comparison, with pre-trend checks (`causal.py`, PR #7).
 - **Semi-synthetic benchmark** — defined below (`synthetic.py`, PR #8).

@@ -35,10 +35,10 @@ from traffic_gml.evaluate import (
     trajectory_figure,
 )
 from traffic_gml.events import build_windows, event_datasets, processed_tables, write_processed
-from traffic_gml.models import BASELINES, CONVS, build_model
+from traffic_gml.models import BASELINES, CONVS, TEMPORAL, build_model
 from traffic_gml.train import DEFAULTS, code_version, data_version, fit, set_seed
 
-MODELS = (*BASELINES, *CONVS)
+MODELS = (*BASELINES, *CONVS, *TEMPORAL)
 
 
 def write_notes(args, metrics: dict, estimate: pd.DataFrame, coverage: dict) -> str:
@@ -50,6 +50,7 @@ def write_notes(args, metrics: dict, estimate: pd.DataFrame, coverage: dict) -> 
     """
     ranked = sorted(metrics.items(), key=lambda kv: kv[1]["mae"])
     gap = metrics["gcn"]["mae"] - metrics["mlp"]["mae"]
+    temporal_gap = metrics["stgcn"]["mae"] - metrics["tgru"]["mae"]
     pooled = estimate.effect.mean()
     return f"""# How to read these outputs
 
@@ -67,6 +68,11 @@ Only `gcn` against `mlp` isolates the graph: they share a trunk and parameter
 shapes and differ only in having edges. That gap is {gap:+.3f} mph on a single
 seed. `sage` has roughly twice the per-layer parameters, so `sage` beating `mlp`
 mixes the graph with model capacity.
+
+`stgcn` against `tgru` is the same controlled pair for the spatiotemporal
+models, both a GRU down the history and differing only in the edges:
+{temporal_gap:+.3f} mph. Comparing `stgcn` with `mlp` instead mixes the graph
+with the temporal encoder and is not a graph result.
 
 ## The effect estimate is crash minus matched control
 
