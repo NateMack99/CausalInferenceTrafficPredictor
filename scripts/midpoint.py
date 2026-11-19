@@ -128,6 +128,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--exposure-hops", type=int, default=2)
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument("--static-features", nargs="*", default=[])
+    parser.add_argument(
+        "--drop-zero-speed",
+        action="store_true",
+        help="treat an observed 0.0 mph as missing (the midpoint run kept zeros)",
+    )
     parser.add_argument("--epochs", type=int, default=DEFAULTS["epochs"])
     parser.add_argument("--patience", type=int, default=DEFAULTS["patience"])
     parser.add_argument("--hidden", type=int, default=DEFAULTS["hidden"])
@@ -168,6 +173,7 @@ def main(argv: list[str] | None = None) -> dict:
         exposure_hops=args.exposure_hops,
         stride=args.stride,
         static_features=args.static_features,
+        drop_zero_speed=args.drop_zero_speed,
     )
     train = sets["train"]
     print(

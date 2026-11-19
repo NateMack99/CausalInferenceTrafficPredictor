@@ -13,7 +13,8 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | History `L` | 12 bins (2 h) | `--history` |
 | Horizon `H` | 6 bins (1 h) | `--horizon` |
 | Stride | 1 bin | `--stride` |
-| Crash masking | 2 graph hops, `H` bins forward | `--exposure-hops` |
+| Crash masking | 2 graph hops, `H` bins forward, on `x` **and** `y` | `--exposure-hops` |
+| Zero speeds | kept (midpoint convention) | `--drop-zero-speed` |
 | Splits | chronological 70/15/15, gap `ceil((L+H)/stride)` windows | `events.build_windows` |
 | Seed | 42 | `--seed` |
 | Static features | `length_m degree betweenness` | `--static-features` |
@@ -127,10 +128,17 @@ are immaterial at this scale, the third is not):
   was fitted on, so 22 of 4,813 control pairs shared a fitted cell. Fixed; the
   pooled estimate moves by 0.001 mph and the sample becomes 2,527 events / 4,791
   controls.
-- `x` is not masked for crash contamination, only `y`.
+- `x` was not masked for crash contamination, only `y`. **Fixed**: `x_mask` is now
+  `isfinite(lags) & clean[lag]`, so a contaminated input is masked and zeroed like a
+  missing one. This one is not cosmetic — only the graph models aggregate
+  neighbours, so the contamination reached `gcn`/`sage` and never `mlp`, which
+  confounds the gcn–mlp gap the study reads the graph effect off. The frozen
+  numbers above predate the fix and have not been rerun.
 - 98 crash rows and 66 control rows have an observed speed of exactly 0.0 mph and
   carry **31% of the pooled effect**: without them it is −0.296, not −0.430.
-  Whether 0.0 is a sentinel or real standstill is unresolved.
+  Whether 0.0 is a sentinel or real standstill is still unresolved, but it is now
+  switchable with `--drop-zero-speed` (default off, keeping this baseline
+  reproducible). Deciding it needs the portal's own definition, not a rerun.
 
 **What this baseline does not establish:** the controlled gcn–mlp gap is 0.022 mph
 on one seed, so no graph advantage is shown; effects are crash-segment only, so

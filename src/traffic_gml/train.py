@@ -139,6 +139,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     windows.add_argument("--stride", type=int, default=1, help="bins between window origins")
     windows.add_argument("--static-features", nargs="*", default=[])
+    windows.add_argument(
+        "--drop-zero-speed",
+        action="store_true",
+        help="treat an observed 0.0 mph as missing (the midpoint run kept zeros)",
+    )
 
     model = parser.add_argument_group("model")
     model.add_argument("--hidden", type=int, default=DEFAULTS["hidden"])
@@ -173,6 +178,7 @@ def main(argv: list[str] | None = None) -> dict:
         exposure_hops=args.exposure_hops,
         stride=args.stride,
         static_features=args.static_features,
+        drop_zero_speed=args.drop_zero_speed,
     )
     seen = torch.isfinite(sets["train"].values)
     local = local_time(sets["train"].times)
@@ -186,8 +192,8 @@ def main(argv: list[str] | None = None) -> dict:
     if args.model in CONVS and args.model != "mlp" and args.exposure_hops < args.layers:
         print(
             f"note: {args.layers} layers read {args.layers} hops but crash masking covers "
-            f"{args.exposure_hops}. Masking only removes contaminated *targets*; `x` carries "
-            "the whole grid, so some inputs touch crash cells at any setting of this flag"
+            f"{args.exposure_hops}, so a contaminated road can still sit inside the "
+            "receptive field with every one of its cells masked out of the input"
         )
     model = build_model(args.model, sets["train"], args.hidden, args.layers, args.dropout)
     history = fit(

@@ -6,7 +6,7 @@ Chicago crash + speed data → cleaned, aligned road observations → road graph
 
 ## Module boundaries
 
-- `data.py`: retrieve, clean, align speeds and crashes.
+- `data.py`: retrieve, clean, align speeds and crashes. Negative speeds are dropped as sentinels; the 0.0 mph convention is `build_windows(drop_zero_speed=...)`, downstream of the loader.
 - `graph.py`: build road-segment connectivity; map crashes to segments.
 - `events.py`: build accident, control, and crash-free training windows.
 - `models.py`: non-graph, GNN, and spatiotemporal forecasters.
@@ -45,10 +45,10 @@ Left column is the name the course brief uses; right column is what the code cal
 
 Pre-event features may include recent speeds, time-of-day, and static road features. A forecaster must not see post-event outcomes when predicting the no-accident scenario.
 
-PR #3 implements this, asserted in `tests/test_smoke.py`. A batch carries `x`, `x_mask`, `y`, `y_mask` and `origin` at the shapes above, `x` channels being `speed, tod_sin, tod_cos, dow_sin, dow_cos` then any static road columns. Speeds are normalised on crash-free training cells only, a missing speed is zero (the training mean) with a false mask, and a naive `time` column is read as local, which is what the portal publishes and `csv_to_parquet` preserves. The basic GNN flattens `history` into per-road features; the dimension stays separate so PR #6 can consume it directly.
+PR #3 implements this, asserted in `tests/test_smoke.py`. A batch carries `x`, `x_mask`, `y`, `y_mask` and `origin` at the shapes above, `x` channels being `speed, tod_sin, tod_cos, dow_sin, dow_cos` then any static road columns. Speeds are normalised on crash-free training cells only, a missing or crash-contaminated speed is zero (the training mean) with a false mask, and a naive `time` column is read as local, which is what the portal publishes and `csv_to_parquet` preserves. The basic GNN flattens `history` into per-road features; the dimension stays separate so PR #6 can consume it directly.
 
 Three deliberate asymmetries: message passing uses `edge_index` **as given**, so it is directed, while crash contamination spreads **undirected**, over-reaching being the safe error when excluding training data; a crash is assumed to contaminate for `horizon` bins after it is reported, which is an assumption and not a measurement; and `--exposure-hops` defaults to 2 to match the default 2-layer model. It stays a data flag rather than being derived from `--layers`, so that changing the architecture cannot silently change the splits.
 
-`--exposure-hops` removes contaminated **targets**, not contaminated **inputs**. `usable` masks `y`; `x` carries the whole `[history, roads]` grid, so a clean target can still read a crash-affected neighbour inside the receptive field — about 18% of usable training targets do. Raising the flag does not fix this: the masked region and the receptive field grow together, so the fraction stays near 18-20% while usable targets fall. Masking `x` is the fix, and it is not implemented.
+`--exposure-hops` governs both **targets** and **inputs**. `usable` masks `y`; `x_mask` is now `isfinite(lags) & clean[lag]`, so a contaminated input cell is masked and zeroed exactly like a missing one. Before that fix a clean target could read a crash-affected neighbour inside the receptive field — about 18% of usable training targets did — which put a real slowdown inside the no-crash counterfactual and reached `gcn`/`sage` while never reaching the edgeless `mlp`, confounding the one comparison meant to isolate the graph. Raising the flag was never the fix: the masked region and the receptive field grow together, so the fraction stayed near 18-20% while usable targets fell. A contaminated road can still sit inside the receptive field, but it now arrives fully masked.
 
 Freeze schema names and shapes before PRs #4–6; update this document if the implementation differs.
