@@ -13,6 +13,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as pds
 import pytest
+import torch
 
 from traffic_gml.data import FREQ
 from traffic_gml.evaluate import coverage_funnel, effects, grid_coverage, neighbour_coverage
@@ -135,6 +136,30 @@ def test_event_windows_are_pre_crash_and_controls_are_held_out(events):
     # Each window scores exactly the one road the crash happened on.
     assert event.usable.sum(dim=1).unique().tolist() == [1]
     assert control.usable.sum(dim=1).unique().tolist() == [1]
+
+
+def test_masking_inputs_never_touches_the_measured_road(events):
+    """Input masking must not reach the arm it measures.
+
+    An event's own crash dirties cells from `origin + 1`, so its lag is
+    strictly earlier than anything it marks, and both arms separately require
+    their measured road clean across the whole span. If either stopped holding,
+    the new `clean[lag]` term in `x_mask` would start eating the measurement
+    instead of protecting it.
+    """
+    _, _, _, _, _, event, control = events
+    for data in (event, control):
+        assert len(data)
+        for i in range(len(data)):
+            item = data[i]
+            road = int(data.usable[i].nonzero().item())
+            t = int(item["origin"])
+            lag = slice(t - data.history + 1, t + 1)
+            assert torch.equal(item["x_mask"][:, road], torch.isfinite(data.values[lag, road]))
+            assert torch.equal(
+                item["y_mask"][:, road],
+                torch.isfinite(data.values[t + 1 : t + 1 + data.horizon, road]),
+            )
 
 
 def test_effects_recover_the_injected_shock_and_controls_stay_flat(events):

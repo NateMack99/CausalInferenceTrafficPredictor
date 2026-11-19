@@ -2,232 +2,210 @@
 
 **Course:** CS 6501 Graph Machine Learning · Fall 2026  
 **Team:** Nate, Maddox, Kyle  
-**Timeline:** November 6 – December 9, 2026  
-**Plan:** 4 sprints · 12 planned PRs · Sprint 1 complete · Future work unassigned
+**Final deadline:** December 9, 2026  
+**Plan:** 4 sprints · 12 planned PRs · Sprint 1 complete · Remaining owners unassigned  
+**Roadmap updated:** November 19, 2026
+
+> **Status note:** Verified against the repository on November 19, 2026: no commit has landed since the midpoint (`0c1d5c9`), so PRs #4–#12 are all still open and the November 17 checkpoint was missed. Sprint 1 is green (Ruff clean, 31 tests pass) and `docs/experiments.md` matches `outputs/midpoint/summary.json`. Of the three known issues recorded there, control admissibility is fixed in code; **`x` crash-masking and the 0 mph convention are still open**.
 
 ## Research goal
 
-Estimate how crashes affect speeds on the crash road and connected roads over time. Compare non-graph, graph, and spatiotemporal graph models to determine whether road-network information improves **counterfactual effect estimation**, not just traffic forecasting.
+Estimate how reported crashes are associated with changes in traffic speeds **on the crash road and on connected roads over time**. Test whether road connectivity and temporal graph learning improve **no-crash counterfactual estimation**, not merely ordinary forecasting.
 
-**Approach:** Train no-accident speed forecasters on appropriate crash-free data, estimate crash-associated effects relative to untreated predictions and matched controls, and validate effect recovery on **semi-synthetic data with known ground truth**. Real-world causal claims remain conditional on the matching and identification assumptions.
+**Core design:** Build a road-segment graph; train a no-crash forecaster on appropriately screened untreated windows; use matched, out-of-sample controls to correct residual bias; estimate effects by road distance and time; and evaluate the complete estimator on **semi-synthetic disruptions with known effects**. Observational results are conditional on the quality of matching and causal assumptions.
 
-## Development conventions
+**What this project is not:** Causal-DAG discovery, a new structural causal model, a latent-confounder VAE, or policy optimization. No NOTEARS, DAG-GNN, DECI, or CEVAE implementation is planned.
 
-- **One PR per useful research deliverable.** These 12 PRs are a plan, not a quota; split only if work blocks teammates or becomes difficult to review.
-- **Build on the existing code.** Keep reusable logic in `src/traffic_gml/` and scripts as small `argparse` entry points. Reuse existing loaders, splits, and metrics; do not introduce a second pipeline.
-- **Keep tooling lean.** `uv`, `pyproject.toml`, Ruff, pytest, and simple saved experiment arguments/results are enough. No new configuration, tracking, or orchestration framework unless there is a demonstrated need.
-- **Preserve methodological correctness.** No post-event inputs for no-crash forecasts, no contaminated untreated training examples, no in-sample controls, and no imputed observations treated as measured targets.
-- **Make comparisons fair.** Use shared held-out periods, masks, and event cohorts. Distinguish forecasting error, known-effect recovery, and observational effect estimates.
-- **Document important decisions, not every function.** Keep data rules in `docs/data.md`, research decisions and run provenance in `docs/experiments.md` / `docs/methodology.md`, and coding conventions in `AGENTS.md`.
+## Engineering rules
+
+- **One useful outcome per PR**, not one PR per function. The 12 PRs are a plan, not a quota.
+- **Reuse the current codebase.** Reusable logic lives in `src/traffic_gml/`; `scripts/` holds small `argparse` entry points. Add modules only when their logic exists.
+- **Keep tooling minimal:** `uv`, `pyproject.toml`, PyTorch/PyG, NetworkX, Ruff, pytest. No Hydra, MLflow, causal-discovery framework, or custom experiment platform.
+- **Preserve strict interfaces:** stable segment IDs, time-grid conventions, graph indices, observation masks, event IDs, and shared evaluation splits.
+- **Protect identification:** pre-event inputs only for a crash counterfactual; untreated training windows must be screened for exposure in both **input histories and targets**; controls must be genuinely out-of-sample.
+- **Make fair comparisons:** same held-out periods, target masks, and event cohorts where possible; compare predictive accuracy, semi-synthetic effect recovery, and real-event estimates separately.
+- **Write only useful documentation:** `README.md` for running, `AGENTS.md` for coding, `docs/data.md` for measurement rules, and `docs/methodology.md` / `docs/experiments.md` for the estimand, assumptions, decisions, and run records.
+- **Paper:** Overleaf remains the LaTeX source of truth; the repository may contain a convenience copy.
 
 ---
 
-## Sprint 1 — Initial Setup & Midpoint Review
+## Sprint 1 — Data, Graph & Midpoint Baseline
 
 **November 6–9 · 3 PRs · Complete**  
-**Goal:** Establish real data, a road graph, baseline models, and preliminary results.
+**Goal:** Establish the real-data pipeline and credible preliminary results.
 
 ### PR #1 — Traffic Data — Nate
+**Purpose:** Prepare Chicago crash reports and monitored speed observations.
 
-**Purpose:** Prepare crash and traffic-speed data for downstream experiments.
-
-- [x] Download Chicago crash and historical traffic-speed datasets.
-- [x] Inspect columns, missing values, and time coverage.
-- [x] Select an initial study period/area with usable speed coverage.
-- [x] Clean data and save CSV/Parquet files.
-- [x] Provide speeds indexed by road segment and timestamp.
-
-**Done:** Clean data and coverage information are available.
+- [x] Download, inspect, and clean crash and speed datasets.
+- [x] Choose an initial study period and document missing observations.
+- [x] Save reusable segment-by-time speed data and crash records.
+- [x] Report data coverage and filtering counts.
 
 ### PR #2 — Road Graph — Maddox
+**Purpose:** Define physical road connectivity and locate reported crashes.
 
-**Purpose:** Represent the monitored roads and link crashes to road segments.
+- [x] Build and inspect the NetworkX road-segment graph.
+- [x] Match crashes to monitored segments with consistent IDs.
+- [x] Calculate basic graph properties and create a network visualization.
 
-- [x] Build the road-segment graph with NetworkX.
-- [x] Connect segments through navigable intersections.
-- [x] Match crashes to monitored road segments.
-- [x] Compute degree and betweenness centrality.
-- [x] Visualize roads and matched crashes.
+### PR #3 — Forecasting Baselines — Kyle
+**Purpose:** Establish models and metrics for later comparisons.
 
-**Done:** Road graph and crash-to-segment mappings are available.
+- [x] Set up PyTorch, PyG, `uv`, and the training entry point.
+- [x] Implement simple baselines, MLP, GCN, and GraphSAGE.
+- [x] Train and evaluate models on common splits with masked MAE/RMSE.
 
-### PR #3 — Baselines & Modeling Setup — Kyle
+**Shared completed work:** Joined crashes, speeds, and graph data; constructed crash/control windows; produced midpoint coverage, model, and preliminary crash-road effect results; saved run provenance and known limitations.
 
-**Purpose:** Establish reusable forecasting models and evaluation code.
-
-- [x] Set up Python, PyTorch, PyTorch Geometric, and project dependencies.
-- [x] Implement simple forecasting baselines.
-- [x] Implement GCN and GraphSAGE models.
-- [x] Define common model inputs and forecast targets.
-- [x] Implement training and MAE/RMSE evaluation.
-
-**Done:** Baseline and GNN forecasting experiments run on real data.
-
-### Shared midpoint deliverables
-
-- [x] Integrate crash, speed, and graph data with consistent IDs and times.
-- [x] Build crash and matched crash-free windows.
-- [x] Train/evaluate models on common splits and create coverage figures.
-- [x] Prepare the midpoint report.
-- [x] Record the baseline and its known limitations in `docs/experiments.md`.
-
-**Reference midpoint result:** March–April 2025, 2,529 analysis events, 879 modeled road segments, 53.8% speed-grid coverage, and preliminary _crash-road-only_ effects. The controlled GCN–MLP forecasting gap is small; no real spillover or causal recovery result is established yet. Preserve this run for comparison rather than silently replacing it.
+**Frozen reference:** March–April 2025; **2,529** analysis crash events; **879** modeled roads; **53.8%** observed speed-grid cells. Real neighboring-road effects, graph-specific causal improvements, and known-effect recovery were **not** established at midpoint. Keep the old results as a reference rather than overwriting them.
 
 ---
 
-## Sprint 2 — Data Quality, Controls & Spatiotemporal Modeling
+## Sprint 2 — Data Validity, Control Design & Spatiotemporal Modeling
 
-**November 10–17 · 3 PRs · Unassigned**  
-**Goal:** Resolve known data/evaluation risks, expand usable observations, and train the primary spatiotemporal model.
+**Original target: November 10–17 · PRs #4–#6 · Verify progress / carry forward unfinished work**  
+**Goal:** Fix the known data and evaluation problems before making new causal claims; train one spatiotemporal model in parallel.
 
-### PR #4 — Data Quality & Expansion
+### PR #4 — Data Quality & Expanded Sample
+**Purpose:** Retain useful observations without hiding measurement problems or relaxing causal eligibility arbitrarily.
 
-**Purpose:** Increase usable data without weakening the validity of event selection.
+- [ ] Expand the study period using the historical data already available; report coverage, matches, and control candidates by month before full retraining.
+- [ ] Audit the meaning of **0 mph** in the published data and compare analyses retaining versus excluding zeros; preserve the midpoint convention as a reference. *(`--drop-zero-speed` exists and defaults to off; the two analyses have not been run and the portal's definition of 0.0 is still unconfirmed.)*
+- [ ] Separate crash-event eligibility, observed-outcome eligibility, and eligibility for a particular matched-control method.
+- [ ] Compare practical pre-event observation thresholds; use masks for missing values and never score imputed outcomes as observations.
+- [ ] Test plausible contamination durations and hop distances, including the cost of excluding overlapping incidents; **do not choose a rule because it makes the effect larger**.
+- [ ] Recompute 0/1/2-hop observation coverage and document sample attrition with the expanded period.
 
-- [ ] Extend the study period using the historical data already on disk; report monthly coverage, events, and potential controls before retraining everything.
-- [ ] Investigate whether `0 mph` is a valid observation or a data sentinel; report **both** conventions as a sensitivity analysis without silently changing the baseline.
-- [ ] Separate general event eligibility from eligibility for a particular matched-control estimator.
-- [ ] Compare partial-window coverage rules (for example, 1/3/6 observed pre-event bins); keep observed-outcome masks and a strict reference subset.
-- [ ] Test reasonable crash-contamination durations and hop distances; report how many events each rule excludes (including the previously excluded pre-history events).
-- [ ] Recheck 1-hop/2-hop observation coverage and data-quality differences across the enlarged sample.
+**Done when:** Expanded data and each major filtering decision have reproducible coverage and sensitivity results.
 
-**Done when:** Expanded, versioned data has documented filtering rules, retention counts, and zero-speed/missingness sensitivity results.
+### PR #5 — Leakage-Safe Training & Comparable Controls
+**Purpose:** Make untreated forecasts and matched controls genuinely out of sample and comparable to crash events.
 
-### PR #5 — Leakage-Safe Controls & Experiment Protocol
+- [ ] Confirm or fix remaining crash-to-segment bugs and preserve regression tests; verify the completed fitted-target and wall-clock safeguards.
+- [x] Exclude or mask **crash-exposed input histories as well as training targets**, based on the chosen event exposure rule; test this on small examples.
+- [ ] Implement a simple **time-blocked out-of-fold (OOF)** prediction scheme, with an embargo for overlapping windows, so historical crash/control periods can be evaluated without fitting on their targets.
+- [ ] Choose matched controls using **only pre-event** speed level/trend and calendar/road features; report control counts, overlap, pre-event balance, and calendar alignment.
+- [ ] Make control selection reproducible; separate variation from model-training seeds and control selections without building a tracking framework.
+- [ ] Record a primary analysis specification in `docs/experiments.md` before assessing its effect estimates.
 
-**Purpose:** Make untreated comparisons credible, reproducible, and comparable across calendar periods.
+**Done when:** Leakage checks pass; crash and control predictions are out of sample; matching quality and control-supply improvements can be inspected.
 
-- [ ] Resolve or explicitly document the two previously identified crash-matching/segment bugs, with regression tests for any fixes.
-- [ ] Prevent crash-contaminated **input histories** as well as target windows from entering untreated training examples; test the receptive-field/exposure assumptions.
-- [ ] Preserve the already-fixed fitted-target exclusion and raw wall-clock timestamp checks with automated tests.
-- [ ] Replace unstable random control selection with reproducible, pre-event similarity-based matching; report control supply and pre-event balance.
-- [ ] Address the training/control calendar mismatch using leakage-safe time-blocked out-of-fold predictions or another documented, out-of-sample design; never admit in-sample controls.
-- [ ] Define the primary splits, seeds, matching rules, and metrics once; support comparing runs without building a new experiment framework.
+### PR #6 — Spatiotemporal No-Crash Forecaster
+**Purpose:** Test whether jointly modeling road connectivity and time improves no-crash traffic predictions.
 
-**Done when:** Controls are out of sample, crash/control periods are comparable, leakage checks pass, and control-selection sensitivity is measurable.
+- [x] Implement **one** modest spatiotemporal architecture: existing graph message passing plus a GRU *or* temporal convolution.
+- [x] Reuse the existing data tensors, masks, model interface, and training loop; avoid creating a second pipeline.
+- [ ] Train on valid untreated windows to predict observed speeds 10–60 minutes ahead using masked forecasting loss. *(Runs reproducibly on the mock fixture only; no real-data run yet.)*
+- [ ] Compare with current baselines and a **matched temporal no-edge version** using identical held-out periods, features, and evaluation masks. *(`tgru` is the matched no-edge twin at equal parameter count and `scripts/midpoint.py` trains both; results not yet produced.)*
+- [ ] Report per-horizon MAE/RMSE and a few training seeds; start small and use Rivanna only if profiling justifies it.
 
-### PR #6 — Spatiotemporal Counterfactual Forecaster
+**Done when:** The spatiotemporal and matched non-graph temporal models run reproducibly on the same clean evaluation sample.
 
-**Purpose:** Model future no-crash traffic using road connectivity and recent temporal dynamics.
-
-- [ ] Add a small spatiotemporal GNN: graph message passing plus a GRU **or** temporal convolution (start with one architecture).
-- [ ] Train only on eligible untreated windows using masked forecasting loss and pre-event inputs.
-- [ ] Forecast 10–60 minutes ahead on the established data interface.
-- [ ] Compare with MLP, GCN, GraphSAGE, and simple baselines on identical held-out periods, target masks, and sample definitions.
-- [ ] Save model settings, training seed, runtime, and per-horizon MAE/RMSE; smoke-test on small data before scaling on Rivanna if needed.
-
-**Done when:** A trained spatiotemporal model produces reproducible held-out no-accident forecasts and a fair baseline comparison.
-
-**Sprint 2 deliverable:** A more reliable expanded dataset, leakage-safe comparison design, and a working spatiotemporal model. **If the data interface stabilizes early, start a tiny known-effect injection smoke test now**; the full benchmark remains PR #8.
+**Sprint 2 deliverable:** Defensible data filters, leakage-safe controls, and a trained spatiotemporal model. Start a tiny synthetic-injection smoke test as soon as the event-window format is stable; do not delay the full benchmark until the final sprint.
 
 ---
 
-## Sprint 3 — Causal Comparisons, Known-Effect Validation & First Spillovers
+## Sprint 3 — Matched Causal Analysis, Semi-Synthetic Validation & First Spillovers
 
-**November 18–26 · 3 PRs · Unassigned**  
-**Goal:** Produce the main research results _before_ the presentation window.
+**November 18–26 · PRs #7–#9 · Current planned research phase**  
+**Goal:** Obtain the main research results early enough to diagnose them before the presentation.
 
-### PR #7 — Matched Causal Baseline & Initial Real Spillovers
+### PR #7 — Matched Event Study & Initial Neighbor Effects
+**Purpose:** Estimate direct and neighboring-road effects using an interpretable non-GNN comparison.
 
-**Purpose:** Provide an interpretable non-GNN effect estimate and an early answer to the network question.
+- [ ] Implement a matched event-study or difference-in-differences comparison using the validated controls.
+- [ ] Show **pre-event trends and covariate balance**; explain which factors are controlled for and which may remain unobserved.
+- [ ] Estimate preliminary **0-, 1-, and 2-hop** speed differences over time using a clear event/exposure definition.
+- [ ] Report the number of events and observed roads at each hop and horizon; compare a common-event cohort with available cases.
+- [ ] Keep these observational estimates distinct from simulated ground-truth results.
 
-- [ ] Implement a matched event-study or difference-in-differences baseline using pre-treatment matching and checks.
-- [ ] Examine pre-event trends and treatment/control balance.
-- [ ] Estimate crash-road effects and **first-pass 1-hop/2-hop effects** over time.
-- [ ] Report sample sizes for each ring/horizon and a common-event comparison where possible.
-- [ ] Save results separately from forecasting residual-based estimates.
+**Done when:** A non-GNN matched analysis produces reproducible direct and first-pass neighbor-effect curves with honest assumptions.
 
-**Done when:** We have a reproducible causal baseline and preliminary observed spillover curves, without claiming they establish causal propagation.
+### PR #8 — Semi-Synthetic Network-Effect Benchmark
+**Purpose:** Check the full effect-estimation procedure against known injected disruptions, as recommended by the mentor.
 
-### PR #8 — Semi-Synthetic Accident Benchmark
+- [x] Start from **held-out, crash-free** real traffic windows and retain their original, observed speeds as untreated outcomes.
+- [x] Inject known direct and 1-/2-hop slowdowns over time using a small, documented family of effect shapes.
+- [x] Vary effect size, duration, and spatial spread; include both simple event placement and **pre-congestion-dependent** placement to test selection/matching sensitivity.
+- [x] Preserve true untreated outcomes, treated outcomes, true effects, event identities, masks, and the random seed.
+- [x] Add deterministic tests for injection and labels; **never reveal injected post-event effects to the forecaster**.
 
-**Purpose:** Test effect recovery against known ground truth, as requested by the mentor.
+**Done when:** Every model and causal baseline can run on the *same* reproducible, known-effect test scenarios.
 
-- [ ] Use held-out, crash-free real traffic windows as untreated reference trajectories.
-- [ ] Inject known shocks at an incident road and selected connected roads over time, using simple, documented propagation rules.
-- [ ] Vary magnitude, duration, and hop distance; add direction only if graph directions are reliable.
-- [ ] Preserve untreated speeds, injected treated speeds, observation masks, and exact true effects.
-- [ ] Add small deterministic tests for injection, masking, and effect-label correctness.
+### PR #9 — Counterfactual Effect Evaluation
+**Purpose:** Determine whether the entire matched counterfactual procedure reliably estimates direct and spillover effects.
 
-**Done when:** The same benchmark can evaluate every model against identical known effects, without giving forecasters access to the injected effect.
+- [ ] Apply non-graph, GCN, GraphSAGE, and spatiotemporal forecasters to the **same held-out event sets**; use only information available before the event.
+- [ ] Compute the real-event residual-plus-matched-control estimate and its synthetic analogue using the same estimator logic.
+- [ ] Evaluate **average effect bias, 0/1/2-hop and time-profile recovery, and uncertainty coverage** against known synthetic effects; compare by selection and missingness scenario.
+- [ ] Report ordinary forecast MAE/RMSE separately. **Sanity check:** for an injected additive effect, unadjusted individual-effect error equals untreated forecast error algebraically; do not present that metric alone as independent causal validation.
+- [ ] Compare effect estimates across forecasters, and fixed-cohort versus available-case estimates. Include **first real 1-/2-hop results** here rather than waiting until Sprint 4.
 
-### PR #9 — Counterfactual Effect Recovery & Model Comparison
+**Done when:** There is a reproducible table of known-effect recovery plus initial real direct/neighbor estimates, with modeling and causal claims clearly separated.
 
-**Purpose:** Determine whether better forecasts yield better estimates of accident effects.
-
-- [ ] Apply each forecaster to held-out real crash events and semi-synthetic events using pre-event information only.
-- [ ] Compute model-based effects and the matched-control adjustment where applicable.
-- [ ] Report effect MAE/RMSE (and bias if useful) against semi-synthetic ground truth, **separately** from forecasting MAE/RMSE.
-- [ ] Compare effect estimates across MLP, GCN, GraphSAGE, spatiotemporal GNN, and simple baselines; check sensitivity to forecaster choice.
-- [ ] Compare available-case estimates with a fixed cohort observed at all horizons; keep crash/control samples aligned.
-
-**Done when:** There is a common results table for known-effect recovery and preliminary real-world direct and neighboring-road estimates.
-
-**Sprint 3 deliverable:** Primary causal comparisons, semi-synthetic ground-truth results, and first real spillover figures, ready to refine before the presentation.
+**Sprint 3 deliverable:** Initial direct/spillover results, a matched causal baseline, and a semi-synthetic benchmark that evaluates more than standard forecasting error.
 
 ---
 
-## Sprint 4 — Robustness, Ablations & Final Deliverables
+## Sprint 4 — Robustness, Graph Ablations & Final Research Outputs
 
-**November 27 – December 9 · 3 PRs · Unassigned**  
-**Goal:** Stress-test the main results and finish the presentation and paper.
+**November 27–December 9 · PRs #10–#12 · Unassigned**  
+**Goal:** Verify the main findings and finish the paper without expanding the model zoo.
 
-### PR #10 — Causal Robustness & Uncertainty
+### PR #10 — Causal Assumptions & Robustness
+**Purpose:** Assess how strongly the results depend on matching, sample selection, and uncertainty assumptions.
 
-**Purpose:** Show which findings survive changes in reasonable analysis choices.
+- [ ] Test pre-event differences and placebo event times.
+- [ ] Vary matching rules and control sets; measure **control-selection variance separately from training-seed variance**.
+- [ ] Check zero-speed handling, missingness, overlapping accidents, exposure distances, and contamination windows.
+- [ ] Use event-level/bootstrap uncertainty appropriate for correlated observations and multiple horizons; avoid counting road-time targets as independent crashes.
+- [ ] Document confounding, limited overlap, observation-process bias, and the difference between association and an identified causal effect.
 
-- [ ] Run crash-free placebo events and pre-trend diagnostics.
-- [ ] Quantify variation across model-training seeds, control selections, and matching rules **separately**.
-- [ ] Check sensitivity to zero-speed handling, missingness, contamination windows, and overlapping crashes.
-- [ ] Estimate event-level uncertainty (clustered or event-bootstrap); do not treat repeated roads/horizons as independent events.
-- [ ] State the assumptions and limits of causal interpretation.
+**Done when:** The primary results include interpretable uncertainty and sensitivity/diagnostic findings, including negative results.
 
-**Done when:** Main effect findings include uncertainty, placebo evidence, and a clear sensitivity summary.
+### PR #11 — Spillover Patterns & Controlled Graph Tests
+**Purpose:** Establish whether neighboring-road results depend on real road structure.
 
-### PR #11 — Network Spillover Analysis & Graph Ablations
+- [ ] Refine 0-/1-/2-hop effects over time with a common-event comparison; test upstream/downstream distinctions only if road direction is trustworthy.
+- [ ] Compare the **real graph**, removed/rewired edges, and the **matched-capacity temporal no-edge model** while holding samples and inputs fixed.
+- [ ] Evaluate both untreated forecasting and semi-synthetic **effect-profile recovery** under these graph ablations.
+- [ ] Report separate hop-ring sample sizes; do not overinterpret apparent distance differences from different event populations.
+- [ ] If time permits, add **one** preregistered subgroup analysis (e.g., pre-crash congestion or crash severity), not a large exploratory grid.
 
-**Purpose:** Test whether effect patterns depend on network position and whether real road structure helps.
+**Done when:** The study can state what road connectivity contributes, or that no reliable benefit was detected.
 
-- [ ] Refine 0-hop, 1-hop, and 2-hop effects across time using a common event cohort alongside available-case results.
-- [ ] Compare upstream/downstream effects where direction is trustworthy.
-- [ ] Test original versus removed/rewired edges and a matched-capacity non-graph comparator.
-- [ ] Report **effect recovery** as well as forecasting performance for the graph ablations.
-- [ ] Explore severity, time-of-day, baseline congestion, or centrality heterogeneity **only if the main tests are complete**.
+### PR #12 — Final Comparisons, Figures & Reproducibility
+**Purpose:** Deliver the minimum complete evidence needed to support the final paper.
 
-**Done when:** The network findings and graph contribution are supported by explicit comparisons, including negative or null results.
+- [ ] Run only a small number of motivated history-window, temporal-encoder, or node-feature ablations.
+- [ ] Compare models on paired held-out time blocks/events, not on millions of overlapping targets treated as independent.
+- [ ] Generate final tables/plots: data coverage; forecasting; matched direct and neighbor effects; known-effect recovery; graph ablations; robustness.
+- [ ] Re-run and verify the selected commands, configurations, data versions, and reported results; retain the frozen midpoint reference.
+- [ ] Complete the presentation and ACM paper (Overleaf source of truth); document limitations and reproducibility commands in the README.
 
-### PR #12 — Final Model Checks & Research Outputs
+**Done when:** Results are reproducible, the paper/presentation agree with the code, and no unsupported causal claim remains.
 
-**Purpose:** Finish the few analyses needed for a reproducible and interpretable final paper.
-
-- [ ] Run targeted temporal/history-length and feature ablations; skip exhaustive architecture searches.
-- [ ] Compare models on paired held-out periods and event-level units, not as 3 million independent speed targets.
-- [ ] Prepare final forecasting, effect-recovery, spillover, and sensitivity tables/figures.
-- [ ] Verify the commands and recorded settings reproduce the selected results.
-- [ ] Keep the repository clean; summarize limitations and lessons from unsuccessful experiments.
-
-**Done when:** The results required by the paper and presentation are final, reproducible, and reviewed.
-
-**Sprint 4 deliverable:** Robustness and ablation results, presentation, and final paper. Overleaf remains the source of truth for LaTeX; the Git copy is for convenience.
+**Sprint 4 deliverable:** Validated direct/spillover analysis, controlled graph comparison, reproducible research outputs, and the final paper.
 
 ---
 
-## Milestones
+## Deadlines and sequencing
 
-| Date             | Expected deliverable                                                             |
-| ---------------- | -------------------------------------------------------------------------------- |
-| **Nov 9**        | Midpoint report and frozen baseline                                              |
-| **Nov 17**       | Expanded/validated data, safer controls, spatiotemporal forecasts                |
-| **Nov 26**       | Matched baseline, semi-synthetic effect recovery, initial real spillover results |
-| **Nov 29**       | Main tables and presentation figures ready                                       |
-| **Nov 30–Dec 7** | Presentation                                                                     |
-| **Dec 9**        | Final ACM-format paper and reproducible code                                     |
+| Date | Deliverable |
+| --- | --- |
+| **Nov 9** | Midpoint review and frozen baseline (complete) |
+| **Nov 17** | Original Sprint 2 checkpoint; carry forward unverified work immediately |
+| **Nov 26** | Semi-synthetic benchmark, matched baseline, and first real 0/1/2-hop results |
+| **Nov 29** | Main results and presentation figures selected |
+| **Nov 30–Dec 7** | Project presentations |
+| **Dec 9** | Final ACM paper and reproducible repository |
 
-## Dependencies and priorities
+### Execution priorities as of November 19
 
-1. **Correctness before claims:** PRs #4–5 establish the data and evaluation rules that final causal comparisons use. PR #6 can be developed in parallel on existing sample data.
-2. **Ground truth early:** Start a simple semi-synthetic fixture as soon as the shared input format is stable; finish the benchmark and effect recovery in PRs #8–9.
-3. **Spillovers before presentation:** Produce first real 1-hop/2-hop estimates in PR #7, leaving detailed graph analysis and ablations for PR #11.
-4. **Be selective:** Reliable controls, effect recovery, and graph-specific evidence take priority over extra architectures, complex infrastructure, or optional heterogeneity plots.
+1. **First:** Confirm what already landed in PRs #4–#6. Fix any remaining input contamination, control leakage/calendar mismatch, or zero-speed ambiguity before trusting new causal results.
+2. **In parallel:** Train the spatiotemporal GNN on a small clean sample and build the semi-synthetic injection fixture.
+3. **Before Nov 26:** Get a matched real-event baseline, known-effect evaluation, and at least one 1-hop effect plot. Expand to 2 hops if the samples support it.
+4. **Afterward:** Graph ablations, placebo/uncertainty, and targeted sensitivity; prioritize these over extra neural architectures or broad hyperparameter searches.
 
-**PR rule:** Each PR should have a clear output, tests for any new correctness-critical behavior, and a short note on how it was validated. Merge continuously; do not hold unrelated work for an entire sprint.
+**Scope guardrail:** If time is tight, prefer **one correct ST-GNN + one fair non-graph temporal baseline + one clean matched estimator + one sound semi-synthetic benchmark**. Additional models and optional heterogeneity analyses are secondary.

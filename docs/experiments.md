@@ -13,7 +13,8 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | History `L` | 12 bins (2 h) | `--history` |
 | Horizon `H` | 6 bins (1 h) | `--horizon` |
 | Stride | 1 bin | `--stride` |
-| Crash masking | 2 graph hops, `H` bins forward | `--exposure-hops` |
+| Crash masking | 2 graph hops, `H` bins forward, on `x` **and** `y` | `--exposure-hops` |
+| Zero speeds | kept (midpoint convention) | `--drop-zero-speed` |
 | Splits | chronological 70/15/15, gap `ceil((L+H)/stride)` windows | `events.build_windows` |
 | Seed | 42 | `--seed` |
 | Static features | `length_m degree betweenness` | `--static-features` |
@@ -127,10 +128,42 @@ are immaterial at this scale, the third is not):
   was fitted on, so 22 of 4,813 control pairs shared a fitted cell. Fixed; the
   pooled estimate moves by 0.001 mph and the sample becomes 2,527 events / 4,791
   controls.
-- `x` is not masked for crash contamination, only `y`.
+- `x` was not masked for crash contamination, only `y`. **Fixed**: `x_mask` is now
+  `isfinite(lags) & clean[lag]`, so a contaminated input is masked and zeroed like a
+  missing one. This one is not cosmetic — only the graph models aggregate
+  neighbours, so the contamination reached `gcn`/`sage` and never `mlp`, which
+  confounds the gcn–mlp gap the study reads the graph effect off. The frozen
+  numbers above predate the fix, but only the edge-using models need rerunning:
+  `crash_free_roads` already requires a scored road's whole lag and target span
+  clean, so `x_mask` is unchanged on that road, and `persistence`,
+  `historical_mean` and `mlp` never read another road. Those three are
+  unaffected to the bit; `gcn`, `sage` and `stgcn` move.
 - 98 crash rows and 66 control rows have an observed speed of exactly 0.0 mph and
   carry **31% of the pooled effect**: without them it is −0.296, not −0.430.
-  Whether 0.0 is a sentinel or real standstill is unresolved.
+  Whether 0.0 is a sentinel or real standstill is still unresolved, but it is now
+  switchable with `--drop-zero-speed` (default off, keeping this baseline
+  reproducible). Deciding it needs the portal's own definition, not a rerun.
+  **The flag is not a clean target-side ablation**: a dropped zero also leaves
+  the model's inputs (an ex-zero lag cell becomes mask-off, filled with the
+  training mean), the normalisation statistics (mean 24.00 → 24.09, std 5.98 →
+  5.79), the historical-mean table, and the report figures. A flag-on against
+  flag-off comparison is therefore a slightly different forecaster on a
+  slightly different sample, not only a different outcome convention. Two
+  measured consequences: 698 more (slot, road) cells lose every crash-free
+  observation and fall back to the 24.09 mph overall mean, which turns a
+  reliable standstill slot into free flow for `historical_mean`; and
+  `trajectory_figure`'s all-18-bins-observed filter starts correlating with the
+  outcome, dropping 11 of 182 paired events and flattening the mean panel from
+  16.13 to 16.60 mph. Window counts and the event/control samples do not move.
+- **Crash times are rounded by whoever filed them.** 39.3% of the 3,668 matched
+  crash stamps fall on a quarter hour and 14.8% on the hour, against 6.7% and
+  1.7% under uniform minutes, with every second zero. A crash rounded up by a
+  few minutes puts post-crash congestion in the last pre-crash input bin on the
+  crash road itself, which no masking rule can detect because every rule reads
+  the same rounded stamp. This attenuates `τ̂`, so **−0.43 mph is a lower bound
+  on this count**, and it is the one open issue here that could move the
+  headline rather than its third decimal. Unquantified; it needs either a
+  finer event time or a sensitivity check that shifts the origin back a bin.
 
 **What this baseline does not establish:** the controlled gcn–mlp gap is 0.022 mph
 on one seed, so no graph advantage is shown; effects are crash-segment only, so

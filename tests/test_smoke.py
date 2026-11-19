@@ -91,6 +91,60 @@ def test_crash_contaminated_targets_are_never_unmasked(built):
             assert not item["y_mask"][:, span].any()
 
 
+def test_crash_contaminated_inputs_are_never_unmasked(built):
+    """The sibling rule, on the input side. Masking only `y` let a clean target
+    read a crashed neighbour inside the receptive field, which puts a real
+    slowdown into the no-crash counterfactual and reaches the graph models but
+    never the edgeless `mlp`. A contaminated input is masked and zeroed."""
+    seen = 0
+    for data in built[0].values():
+        dirty = ~data.clean
+        for i in range(0, len(data), max(len(data) // 20, 1)):
+            item = data[i]
+            t = int(item["origin"])
+            span = dirty[t - HISTORY + 1 : t + 1]
+            seen += int(span.sum())
+            assert not item["x_mask"][span].any()
+            assert (item["x"][..., 0][span] == 0.0).all()
+    assert seen, "no sampled window held a contaminated input cell, so this proves nothing"
+
+
+def test_dropping_zero_speed_changes_only_the_zero_cells():
+    """0.0 mph is either a real standstill or a second sentinel; the loader drops
+    negatives but keeps zeros. At the midpoint 164 such rows carried 31% of the
+    pooled effect, so the flag has to move those cells and nothing else."""
+    ids = np.arange(1, 4)
+    times = pd.date_range("2025-01-06", periods=120, freq=FREQ)
+    speed = np.full((120, 3), 30.0, dtype="float32")
+    speed[10, 0] = 0.0
+    speed[11, 1] = 0.0
+    tables = {
+        "speeds": pd.DataFrame(
+            {
+                "time": np.repeat(times, 3),
+                "segment_id": np.tile(ids, 120),
+                "speed": speed.ravel(),
+            }
+        ),
+        "segments": pd.DataFrame({"segment_id": ids}),
+        "edges": pd.DataFrame({"src": ids[:-1], "dst": ids[1:]}),
+        "crashes": pd.DataFrame(
+            {"crash_record_id": ["C"], "crash_time": [times[100]], "segment_id": [3]}
+        ),
+    }
+    kept, _ = build_windows(tables, history=3, horizon=2)
+    dropped, _ = build_windows(tables, history=3, horizon=2, drop_zero_speed=True)
+
+    assert int((kept["train"].values == 0.0).sum()) == 2
+    assert not bool((dropped["train"].values == 0.0).any())
+    assert torch.isnan(dropped["train"].values[10, 0])
+    assert torch.isnan(dropped["train"].values[11, 1])
+    # Every other cell is untouched, so the flag is not quietly dropping observations.
+    assert int(torch.isfinite(dropped["train"].values).sum()) == int(
+        torch.isfinite(kept["train"].values).sum() - 2
+    )
+
+
 def test_crash_masking_spreads_exactly_exposure_hops():
     """A hand-built path graph. The old check only covered 0 hops, so a wrong
     radius, a wrong direction, or an off-by-one in the hop loop all passed."""
