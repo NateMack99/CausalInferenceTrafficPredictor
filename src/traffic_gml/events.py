@@ -420,7 +420,11 @@ def build_windows(
     standstill or a second sentinel is unresolved: at the midpoint 164 rows of
     exactly 0.0 carried 31% of the pooled effect. Default `False` keeps the
     midpoint convention so the frozen baseline stays reproducible; set it to
-    compare. See `docs/experiments.md`.
+    compare.
+
+    It is not a clean target-side ablation: a dropped zero also moves the
+    inputs, the normalisation statistics, the historical-mean fallback and the
+    report figures. `docs/experiments.md` records the measured consequences.
     """
     segment_ids = np.sort(tables["segments"]["segment_id"].unique())
     values, times = align_grid(tables["speeds"], segment_ids)
