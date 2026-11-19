@@ -196,6 +196,29 @@ def test_mlp_and_gcn_differ_only_by_the_graph(built, batch):
         assert not torch.allclose(graph(*args, edge_index), graph(*args, empty))
 
 
+def test_stgcn_and_tgru_differ_only_by_the_graph(built, batch):
+    """The spatiotemporal pair has to be matched the way mlp/gcn is, or its gap
+    measures the temporal encoder and capacity instead of connectivity."""
+    sets, edge_index = built
+
+    def params(name):
+        return sum(p.numel() for p in build_model(name, sets["train"], hidden=8).parameters())
+
+    assert params("tgru") == params("stgcn")
+
+    empty = torch.zeros((2, 0), dtype=torch.long)
+    args = (batch["x"], batch["x_mask"])
+    torch.manual_seed(0)
+    graph = build_model("stgcn", sets["train"], hidden=8, dropout=0.0).eval()
+    torch.manual_seed(0)
+    plain = build_model("tgru", sets["train"], hidden=8, dropout=0.0).eval()
+    with torch.no_grad():
+        assert graph(*args, edge_index).shape == batch["y"].shape
+        assert not torch.allclose(graph(*args, edge_index), graph(*args, empty))
+        # The no-edge twin must be inert to the graph, or the pair is not controlled.
+        assert torch.allclose(plain(*args, edge_index), plain(*args, empty))
+
+
 def test_run_records_seed_arguments_data_version_and_checkpoint(data_dir, tmp_path):
     argv = ["--data", str(data_dir), "--out", str(tmp_path), "--model", "sage", "--seed", "7"]
     argv += ["--history", str(HISTORY), "--horizon", str(HORIZON)]

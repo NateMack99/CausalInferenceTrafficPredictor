@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader
 from .data import LOCAL_TZ, load_tables, local_time
 from .evaluate import LOSSES, evaluate, masked_loss
 from .events import Windows, build_windows
-from .models import BASELINES, CONVS, build_model, on_device, predict, resolve_device
+from .models import BASELINES, CONVS, TEMPORAL, build_model, on_device, predict, resolve_device
 
 
 def data_version(tables: dict, path: Path) -> dict:
@@ -127,7 +127,7 @@ DEFAULTS = {"epochs": 30, "lr": 1e-3, "batch_size": 64, "patience": 5, "hidden":
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train one no-accident speed forecaster.")
     parser.add_argument("--data", type=Path, default=Path("data/processed"))
-    parser.add_argument("--model", default="gcn", choices=[*BASELINES, *CONVS])
+    parser.add_argument("--model", default="gcn", choices=[*BASELINES, *CONVS, *TEMPORAL])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=Path, default=Path("outputs"))
 
@@ -189,7 +189,11 @@ def main(argv: list[str] | None = None) -> dict:
     )
     print("  ".join(f"{name}={len(data):,} windows" for name, data in sets.items()))
 
-    if args.model in CONVS and args.model != "mlp" and args.exposure_hops < args.layers:
+    aggregates = (args.model in CONVS or args.model in TEMPORAL) and args.model not in (
+        "mlp",
+        "tgru",
+    )
+    if aggregates and args.exposure_hops < args.layers:
         print(
             f"note: {args.layers} layers read {args.layers} hops but crash masking covers "
             f"{args.exposure_hops}, so a contaminated road can still sit inside the "
