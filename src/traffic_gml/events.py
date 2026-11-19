@@ -286,10 +286,16 @@ class Windows(Dataset):
 
     def __getitem__(self, i: int) -> dict[str, Tensor]:
         t = int(self.origins[i])
-        lags = self.values[t - self.history + 1 : t + 1]
+        lag = slice(t - self.history + 1, t + 1)
+        lags = self.values[lag]
         future = self.values[t + 1 : t + 1 + self.horizon]
-        x_mask, y_seen = torch.isfinite(lags), torch.isfinite(future)
-        clock = self.clock[t - self.history + 1 : t + 1].unsqueeze(1)
+        # A contaminated input is masked exactly like a missing one. Masking only
+        # `y` left a clean target reading a crashed neighbour inside the receptive
+        # field, which puts a real slowdown inside the no-crash counterfactual and
+        # reaches `gcn`/`sage` but never the edgeless `mlp`.
+        x_mask = torch.isfinite(lags) & self.clean[lag]
+        y_seen = torch.isfinite(future)
+        clock = self.clock[lag].unsqueeze(1)
         return {
             "x": torch.cat(
                 [
@@ -405,10 +411,25 @@ def build_windows(
     exposure_hops: int = 2,
     stride: int = 1,
     static_features: list[str] | tuple[str, ...] = (),
+    drop_zero_speed: bool = False,
 ) -> tuple[dict[str, Windows], Tensor]:
-    """Crash-free train/validation/test window sets, and the road `edge_index`."""
+    """Crash-free train/validation/test window sets, and the road `edge_index`.
+
+    `drop_zero_speed` treats an observed 0.0 mph as missing. The loader already
+    drops negatives as sentinels but keeps zeros, and whether 0.0 means a real
+    standstill or a second sentinel is unresolved: at the midpoint 164 rows of
+    exactly 0.0 carried 31% of the pooled effect. Default `False` keeps the
+    midpoint convention so the frozen baseline stays reproducible; set it to
+    compare.
+
+    It is not a clean target-side ablation: a dropped zero also moves the
+    inputs, the normalisation statistics, the historical-mean fallback and the
+    report figures. `docs/experiments.md` records the measured consequences.
+    """
     segment_ids = np.sort(tables["segments"]["segment_id"].unique())
     values, times = align_grid(tables["speeds"], segment_ids)
+    if drop_zero_speed:
+        values = np.where(values == 0.0, np.nan, values).astype("float32")
     edges = build_edge_index(tables["edges"], segment_ids)
     if len(tables["edges"]) and not edges.size(1):
         raise ValueError(

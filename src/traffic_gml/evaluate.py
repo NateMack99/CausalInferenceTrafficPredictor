@@ -391,6 +391,13 @@ def trajectory_figure(
     This shows that crashes align with speed histories. A dip is not an effect
     estimate: rush hour, weather or an earlier incident could produce the same
     picture, which is what the counterfactual model is for.
+
+    shortcut: under `--drop-zero-speed` the all-bins-observed filter correlates
+    with the outcome, since a standstill bin becomes missing and takes its
+    window out -- 11 of 182 paired events, flattening the mean panel from 16.13
+    to 16.60 mph, which is the ranking-by-dip this figure promises not to do.
+    Upgrade when that flag is used for a reported figure: carry the dropped
+    zeros through as observed-but-excluded so the filter stays outcome-blind.
     """
     values = data.values.numpy()
     history, horizon = data.history, data.horizon
