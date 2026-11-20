@@ -279,6 +279,75 @@ def treated_windows(reference: Windows, disruptions: Disruptions) -> Windows:
     return data
 
 
+def matched_controls(
+    reference: Windows,
+    disruptions: Disruptions,
+    fitted: np.ndarray,
+    controls: int = 5,
+    seed: int = 0,
+) -> tuple[pd.DataFrame, Windows]:
+    """Untreated control windows for every road a disruption reached.
+
+    Held to the same rule as a real crash's control in `event_datasets`: the
+    same road at the same slot of the week in another week, crash-free across
+    its whole span, and never a cell the forecaster was fitted on. `fitted`
+    comes from `events.fitted_cells(train_set)`.
+
+    These windows read the **untreated** grid, so each is a genuine
+    no-disruption window, and the correction they supply is the forecaster's
+    own bias measured where nothing happened — the same quantity
+    `evaluate.placebo_corrected` subtracts for a real crash. Unlike
+    `untreated_windows`, a control does **not** share the event's inputs, so
+    the prediction does not cancel and the comparison is not an identity.
+
+    Returns one row per (event, road, control origin), and the window set.
+    """
+    history, horizon = reference.history, reference.horizon
+    values = disruptions.untreated
+    clean = reference.clean.numpy()
+    slot = reference.slot.numpy()
+    n_bins = values.shape[0]
+    rng = np.random.default_rng(seed)
+
+    # One pass over the slot grid instead of one per (event, road).
+    same_slot = {int(s): np.flatnonzero(slot == s) for s in np.unique(slot)}
+    origin_of = dict(zip(disruptions.events["event_id"], disruptions.events["origin"], strict=True))
+
+    pairs: list[dict] = []
+    for event_id, road in disruptions.truth.groupby(["event_id", "road"]).groups:
+        origin, road = int(origin_of[event_id]), int(road)
+        eligible = [
+            int(t)
+            for t in same_slot[int(slot[origin])]
+            if abs(t - origin) >= history + horizon
+            and t - history + 1 >= 0
+            and t + horizon < n_bins
+            and not fitted[t + 1 : t + 1 + horizon, road].any()
+            and clean[t - history + 1 : t + horizon + 1, road].all()
+            and np.isfinite(values[t + 1 : t + 1 + horizon, road]).any()
+        ]
+        if not eligible:
+            continue
+        chosen = rng.choice(eligible, size=min(controls, len(eligible)), replace=False)
+        pairs += [
+            {"event_id": event_id, "road": road, "origin": int(t)} for t in np.atleast_1d(chosen)
+        ]
+
+    table = pd.DataFrame(pairs)
+    if table.empty:
+        raise ValueError(
+            "no disruption road has an eligible untreated control window; "
+            "widen the split or lower --controls"
+        )
+
+    unique = table.drop_duplicates(subset=["origin", "road"])
+    only = np.zeros((len(unique), reference.num_roads), dtype=bool)
+    only[np.arange(len(unique)), unique["road"].to_numpy()] = True
+    windows = reference.at(unique["origin"].to_numpy(), only)
+    windows.values = torch.from_numpy(values)
+    return table, windows
+
+
 def untreated_windows(reference: Windows, disruptions: Disruptions) -> Windows:
     """The same windows over the untouched grid: the no-disruption outcomes.
 
