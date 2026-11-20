@@ -24,9 +24,9 @@ Create modules only when their PR requires them. Scripts call these functions; n
 
 ### Status
 
-Ten of the twelve listed modules exist; `causal.py` and `synthetic.py` are not written. `data.py` retrieves, cleans and aligns; `graph.py` builds connectivity and the PyG `edge_index`; `events.py` joins the three streams (`processed_tables`) and builds crash-free training windows plus crash/control event windows; `models.py`, `train.py` and `evaluate.py` cover forecasting, optimisation and metrics. `evaluate.py` also holds the crash-effect estimate and the report figures.
+Eleven of the twelve listed modules exist; `causal.py` is not written. `models.py` now also holds the PR #6 spatiotemporal pair (`stgcn`, `tgru`), which consumes the separate `history` dimension directly as planned. `data.py` retrieves, cleans and aligns; `graph.py` builds connectivity and the PyG `edge_index`; `events.py` joins the three streams (`processed_tables`) and builds crash-free training windows plus crash/control event windows; `models.py`, `train.py` and `evaluate.py` cover forecasting, optimisation and metrics. `evaluate.py` also holds the crash-effect estimate and the report figures.
 
-`mock.py` writes fixture tables so the models run without the portal. It is not PR #8's `synthetic.py`, which injects known effects into *real* crash-free windows.
+`mock.py` writes fixture tables so the models run without the portal. It is not `synthetic.py`, which injects known effects into *real* crash-free windows and is now written.
 
 ## Shared model contract
 
