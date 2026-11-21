@@ -36,7 +36,7 @@ import torch
 from torch import Tensor
 
 from .data import BIN_MINUTES
-from .events import Windows
+from .events import WEEK_SLOTS, Windows
 from .graph import neighbourhood
 
 #: Time profiles. Both are driven by one `duration`, in bins.
@@ -300,6 +300,12 @@ def matched_controls(
     `untreated_windows`, a control does **not** share the event's inputs, so
     the prediction does not cancel and the comparison is not an identity.
 
+    **The held-out span has to exceed a week.** A control sits at the same slot
+    of the week, so its candidates are 1,008 bins away; if every sibling bin
+    falls in the training split it is fitted and rejected, and the road gets no
+    control at all. Injecting into a test split shorter than that leaves this
+    function with nothing to draw, which is a property of the split, not a bug.
+
     Returns one row per (event, road, control origin), and the window set.
     """
     history, horizon = reference.history, reference.horizon
@@ -336,8 +342,11 @@ def matched_controls(
     table = pd.DataFrame(pairs)
     if table.empty:
         raise ValueError(
-            "no disruption road has an eligible untreated control window; "
-            "widen the split or lower --controls"
+            "no disruption road has an eligible untreated control window. A control "
+            "sits one or more whole weeks from its event, so if the held-out split is "
+            f"shorter than a week every sibling bin is a fitted training cell. This "
+            f"split spans {n_bins:,} bins with {WEEK_SLOTS:,} per week; widen the "
+            "speed window, or inject into a longer held-out period."
         )
 
     unique = table.drop_duplicates(subset=["origin", "road"])
