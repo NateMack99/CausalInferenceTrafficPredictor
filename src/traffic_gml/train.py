@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader
 
 from .data import LOCAL_TZ, load_tables, local_time
 from .evaluate import LOSSES, evaluate, masked_loss
-from .events import ABLATIONS, Windows, ablate_edges, build_windows
+from .events import ABLATIONS, GRAPH_FEATURES, Windows, ablate_edges, build_windows
 from .models import BASELINES, CONVS, TEMPORAL, build_model, on_device, predict, resolve_device
 
 
@@ -147,6 +147,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "which road is which; `none` drops every edge",
     )
     windows.add_argument(
+        "--graph-seed",
+        type=int,
+        help="seed for the ablation only; defaults to --seed. Vary this to draw "
+        "another permutation without also redrawing the model initialisation",
+    )
+    windows.add_argument(
         "--drop-zero-speed",
         action="store_true",
         help="treat an observed 0.0 mph as missing (the midpoint run kept zeros)",
@@ -187,9 +193,19 @@ def main(argv: list[str] | None = None) -> dict:
         static_features=args.static_features,
         drop_zero_speed=args.drop_zero_speed,
     )
-    edge_index = ablate_edges(edge_index, args.graph_ablation, sets["train"].num_roads, args.seed)
+    graph_seed = args.seed if args.graph_seed is None else args.graph_seed
+    edge_index = ablate_edges(edge_index, sets["train"].num_roads, args.graph_ablation, graph_seed)
     if args.graph_ablation != "real":
-        print(f"graph ablation: {args.graph_ablation} ({edge_index.size(1)} arcs)")
+        print(
+            f"graph ablation: {args.graph_ablation} (seed {graph_seed}, {edge_index.size(1)} arcs)"
+        )
+        leaked = [c for c in args.static_features if c in GRAPH_FEATURES]
+        if leaked:
+            print(
+                f"  warning: {leaked} are graph-derived and are NOT permuted, so they "
+                "describe a graph this run does not have. Part of any gap against the "
+                "real arm is that inconsistency. Use --static-features length_m."
+            )
     seen = torch.isfinite(sets["train"].values)
     local = local_time(sets["train"].times)
     print(
@@ -239,6 +255,7 @@ def main(argv: list[str] | None = None) -> dict:
             "edges": int(edge_index.size(1)),
             "exposure_hops": args.exposure_hops,
             "ablation": args.graph_ablation,
+            "ablation_seed": graph_seed,
         },
         "normalizer": {"mean": sets["train"].mean, "std": sets["train"].std},
         "splits": metrics,

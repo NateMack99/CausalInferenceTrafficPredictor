@@ -36,6 +36,7 @@ from traffic_gml.evaluate import (
 )
 from traffic_gml.events import (
     ABLATIONS,
+    GRAPH_FEATURES,
     ablate_edges,
     build_windows,
     event_datasets,
@@ -46,6 +47,30 @@ from traffic_gml.models import BASELINES, CONVS, TEMPORAL, build_model
 from traffic_gml.train import DEFAULTS, code_version, data_version, fit, set_seed
 
 MODELS = (*BASELINES, *CONVS, *TEMPORAL)
+
+
+def ablation_warning(args) -> str:
+    """The loudest caveat of all, when the graph a run used was not the real one.
+
+    `write_notes` is the file a reader opens instead of `summary.json`, and
+    without this an ablated run's notes still claim the gcn-mlp gap isolates
+    the graph and still point at `neighbour_coverage.csv` as the
+    spillover-feasibility answer. Neither is true for that run.
+    """
+    if args.graph_ablation == "real":
+        return ""
+    what = {
+        "permuted": "the node labels were shuffled, so the topology and degree sequence "
+        "are the real ones but no road has its own neighbours",
+        "none": "every edge was dropped",
+    }[args.graph_ablation]
+    return f"""> **This run did not use the real road graph.** `--graph-ablation
+> {args.graph_ablation}`: {what}. The forecast numbers below are an ablation
+> arm, not a result about Chicago, and the gcn-mlp sentence does not describe
+> the real network. The coverage and neighbour tables are still computed on the
+> real graph, so those remain comparable across arms.
+
+"""
 
 
 def write_notes(args, metrics: dict, estimate: pd.DataFrame, coverage: dict) -> str:
@@ -59,9 +84,15 @@ def write_notes(args, metrics: dict, estimate: pd.DataFrame, coverage: dict) -> 
     gap = metrics["gcn"]["mae"] - metrics["mlp"]["mae"]
     temporal_gap = metrics["stgcn"]["mae"] - metrics["tgru"]["mae"]
     pooled = estimate.effect.mean()
-    return f"""# How to read these outputs
+    # `--window` is None on the `--data` path, which made this line crash at the
+    # very last step of an otherwise finished run. Pre-existing; fixed here
+    # because this function is being changed anyway.
+    span = f"{args.window[0]} to {args.window[1]}" if args.window else "joined tables"
+    return (
+        ablation_warning(args)
+        + f"""# How to read these outputs
 
-Run: `{args.window[0]} to {args.window[1]}`, seed {args.seed}, one seed only.
+Run: `{span}`, seed {args.seed}, one seed only.
 
 ## results.csv is a forecast leaderboard, not a causal ranking
 
@@ -119,6 +150,7 @@ column is the one that gates a spillover study. Missingness that is flat across
 the horizon means immediate and delayed effects stay separable; missingness that
 grows with time since the crash would not.
 """
+    )
 
 
 def segment_ids_of(tables: dict[str, pd.DataFrame]) -> np.ndarray:
@@ -146,6 +178,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="real",
         choices=list(ABLATIONS),
         help="`permuted` scrambles which road is which at equal degree; `none` drops edges",
+    )
+    parser.add_argument(
+        "--graph-seed", type=int, help="seed for the ablation only; defaults to --seed"
     )
     parser.add_argument(
         "--drop-zero-speed",
@@ -195,9 +230,24 @@ def main(argv: list[str] | None = None) -> dict:
         drop_zero_speed=args.drop_zero_speed,
     )
     train = sets["train"]
-    edge_index = ablate_edges(edge_index, args.graph_ablation, train.num_roads, args.seed)
+    # `model_edges`, not `edge_index`: the coverage funnel and the neighbour
+    # observability table describe the *real* road network, and shadowing the
+    # variable made them describe the ablated one instead -- under `none` every
+    # hop-ring count came out zero, so the file that answers "is spillover
+    # reachable" claimed no neighbour is ever observable.
+    graph_seed = args.seed if args.graph_seed is None else args.graph_seed
+    model_edges = ablate_edges(edge_index, train.num_roads, args.graph_ablation, graph_seed)
     if args.graph_ablation != "real":
-        print(f"graph ablation: {args.graph_ablation} ({edge_index.size(1)} arcs)")
+        print(
+            f"graph ablation: {args.graph_ablation} (seed {graph_seed}, "
+            f"{model_edges.size(1)} arcs); coverage tables still describe the real graph"
+        )
+        leaked = [c for c in args.static_features if c in GRAPH_FEATURES]
+        if leaked:
+            print(
+                f"  warning: {leaked} are graph-derived and are NOT permuted, so they "
+                "describe a graph this run does not have. Use --static-features length_m."
+            )
     print(
         f"{train.num_roads} roads, {edge_index.size(1):,} directed arcs, "
         + "  ".join(f"{name}={len(data):,} windows" for name, data in sets.items())
@@ -214,12 +264,12 @@ def main(argv: list[str] | None = None) -> dict:
         fit(
             model,
             sets,
-            edge_index,
+            model_edges,
             epochs=args.epochs,
             patience=args.patience,
             device=args.device,
         )
-        metrics[name] = evaluate(model, sets["test"], edge_index, device=args.device)
+        metrics[name] = evaluate(model, sets["test"], model_edges, device=args.device)
         fitted[name] = model
         row = metrics[name]
         print(f"  {name:16s} test MAE {row['mae']:6.3f}  RMSE {row['rmse']:6.3f}")
@@ -254,10 +304,10 @@ def main(argv: list[str] | None = None) -> dict:
     keys = ["origin", "road", "crash_record_id", "segment_id"]
     event_keys = table[keys].drop_duplicates(subset=["origin", "road"])
     control_keys = control_table[keys].drop_duplicates(subset=["origin", "road"])
-    event_effects = effects(model, event, edge_index, device=args.device).merge(
+    event_effects = effects(model, event, model_edges, device=args.device).merge(
         event_keys, on=["origin", "road"], validate="m:1"
     )
-    control_effects = effects(model, control, edge_index, device=args.device).merge(
+    control_effects = effects(model, control, model_edges, device=args.device).merge(
         control_keys, on=["origin", "road"], validate="m:1"
     )
     print(
@@ -303,7 +353,7 @@ def main(argv: list[str] | None = None) -> dict:
                 "code": code_version(),
                 "data": data_version(tables, args.data or args.speeds),
                 "roads": train.num_roads,
-                "edges": int(edge_index.size(1)),
+                "edges": int(model_edges.size(1)),
                 "windows": {name: len(data) for name, data in sets.items()},
                 "crashes": len(table),
                 "control_windows": len(control_table),

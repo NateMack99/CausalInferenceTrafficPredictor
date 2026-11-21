@@ -19,6 +19,7 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | Seed | 42 | `--seed` |
 | Static features | `length_m degree betweenness` | `--static-features` |
 | Graph ablation | `real` | `--graph-ablation` |
+| Ablation seed | follows `--seed` | `--graph-seed` |
 | Optimiser | AdamW, lr 1e-3, weight decay 1e-4 | `train.fit` |
 | Loss | masked L1 on normalised speeds | `--loss mae` |
 | Metrics | masked MAE and RMSE in mph, overall and per horizon step | `evaluate.evaluate` |
@@ -26,6 +27,20 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | Effect model | `gcn` | `--effect-model` |
 
 Conventions that are not flags:
+
+- **An ablation arm drops the graph-derived static features.** `degree` and
+  `betweenness` are not permuted, so under `--graph-ablation permuted` they
+  describe a graph the model does not have. Run those arms with
+  `--static-features length_m`; the entry points warn otherwise.
+- **One permutation is not a permutation test.** `--graph-seed` draws another
+  without also redrawing the model initialisation or the control windows, which
+  `--seed` would. A real-against-permuted gap from a single draw has no noise
+  floor, and `docs/methodology.md` already records that redrawing controls alone
+  moves per-bin estimates by up to 0.16 mph. Report the gap as a single draw, or
+  average over several `--graph-seed` values.
+- **Coverage tables always describe the real graph.** The funnel and the
+  neighbour-observability table are computed on the real `edge_index` even in an
+  ablation arm, so hop-ring sample sizes stay comparable across arms.
 
 - **Timestamps are naive local time** (America/Chicago), never UTC. See `docs/data.md`.
 - **Splits are chronological, never random.** Windows overlap at stride 1, so a
