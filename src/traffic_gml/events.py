@@ -436,6 +436,59 @@ def crash_cells(
     return (hit @ neighbourhood(edge_index, len(segment_ids), hops)).toarray()
 
 
+#: Static features derived from the graph, so an ablation leaves them inconsistent.
+GRAPH_FEATURES = ("degree", "betweenness")
+
+
+#: `--graph-ablation` choices. See `ablate_edges` for why these three.
+ABLATIONS = ("real", "permuted", "none")
+
+
+def ablate_edges(edge_index: Tensor, num_roads: int, mode: str = "real", seed: int = 0) -> Tensor:
+    """The real road graph, a relabelled one, or none -- holding everything else fixed.
+
+    This is the controlled test behind "does road connectivity help": a graph
+    model can beat a non-graph one simply by averaging over *any* neighbours,
+    which smooths noise whether or not the neighbours are the real ones.
+
+    - `real` is the graph as built.
+    - `permuted` shuffles the node labels, so the topology, the edge count and
+      the degree *sequence* are all identical and only the correspondence
+      between graph structure and actual roads is destroyed. A model that still
+      wins here was never using the road network. This is the informative
+      ablation, and it is preferred over random rewiring, which would also
+      change the degree sequence and can emit self-loops and duplicate edges.
+    - `none` drops every edge. It changes how much smoothing is available as
+      well as the topology, so read it as a floor rather than as a clean
+      contrast; `mlp` and `tgru` are the matched-capacity no-edge models.
+
+    **It isolates the edges, not the road network.** `degree` and
+    `betweenness` are graph-derived node features and are not permuted, so
+    under `permuted` they describe a graph the model no longer has: on the mock
+    the correlation between the `degree` feature and a node's actual degree
+    falls from 1.0 to -0.06, and `betweenness` still correlates 0.92 with real
+    degree. Part of any real-against-permuted gap is then that inconsistency
+    rather than connectivity, and it leans toward the conclusion the comparison
+    is testing for. Run the ablation arms with `--static-features length_m`
+    only; both entry points warn if you do not.
+
+    One further caveat that no flag fixes: crash contamination and the window
+    sample are built on the **real** graph, deliberately, so the arms share
+    their samples, splits and normalisation. That means `x_mask` still carries
+    real adjacency into the permuted arm. A model on a scrambled graph cannot
+    align that with its own neighbourhood, so the leak is weak, but it is why
+    the permuted arm is not a perfectly clean null.
+    """
+    if mode not in ABLATIONS:
+        raise ValueError(f"unknown graph ablation {mode!r}; choose from {ABLATIONS}")
+    if mode == "real":
+        return edge_index
+    if mode == "none":
+        return torch.zeros((2, 0), dtype=edge_index.dtype)
+    relabel = torch.from_numpy(np.random.default_rng(seed).permutation(num_roads))
+    return relabel.to(edge_index.dtype)[edge_index]
+
+
 def build_windows(
     tables: dict[str, pd.DataFrame],
     history: int = 12,

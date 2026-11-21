@@ -15,7 +15,14 @@ from torch.utils.data import DataLoader
 
 from traffic_gml import train
 from traffic_gml.data import FREQ, align_grid
-from traffic_gml.events import FEATURES, build_windows, clock_features
+from traffic_gml.events import (
+    ABLATIONS,
+    FEATURES,
+    GRAPH_FEATURES,
+    ablate_edges,
+    build_windows,
+    clock_features,
+)
 from traffic_gml.mock import make_mock
 from traffic_gml.models import build_model
 
@@ -233,3 +240,45 @@ def test_run_records_seed_arguments_data_version_and_checkpoint(data_dir, tmp_pa
     assert json.loads((run / "args.json").read_text())["seed"] == 7
     assert recorded["data"]["rows"]["speeds"] > 0
     assert (run / "model.pt").exists()
+
+
+def test_graph_ablation_holds_capacity_fixed_and_only_moves_the_topology(built, batch):
+    """PR #11's controlled test. A graph model can beat a non-graph one just by
+    averaging over *any* neighbours, so the informative ablation keeps the edge
+    count and degree sequence and scrambles only which road is which. If that
+    changed the amount of message passing, a loss under it would be ambiguous.
+    """
+    sets, edge_index = built
+    roads = sets["train"].num_roads
+
+    assert ablate_edges(edge_index, roads, "real") is edge_index
+    none = ablate_edges(edge_index, roads, "none")
+    assert none.size(1) == 0
+
+    permuted = ablate_edges(edge_index, roads, "permuted", seed=0)
+    assert permuted.size(1) == edge_index.size(1), "edge count must not change"
+    assert permuted.dtype == edge_index.dtype
+    before = np.bincount(edge_index[0].numpy(), minlength=roads)
+    after = np.bincount(permuted[0].numpy(), minlength=roads)
+    assert sorted(before.tolist()) == sorted(after.tolist()), "degree sequence must survive"
+    # The assignment really is scrambled, and reproducible.
+    assert not torch.equal(permuted, edge_index)
+    assert torch.equal(permuted, ablate_edges(edge_index, roads, "permuted", seed=0))
+    assert not torch.equal(permuted, ablate_edges(edge_index, roads, "permuted", seed=1))
+
+    # And it reaches the model: a graph forecaster must give a different answer.
+    torch.manual_seed(0)
+    model = build_model("gcn", sets["train"], hidden=8, dropout=0.0).eval()
+    with torch.no_grad():
+        args = (batch["x"], batch["x_mask"])
+        assert not torch.allclose(model(*args, edge_index), model(*args, permuted))
+        # `none` is the roadmap's floor arm, so it has to actually run: GCNConv
+        # survives an empty edge_index only because it adds self-loops.
+        assert torch.isfinite(model(*args, none)).all()
+
+    with pytest.raises(ValueError, match="unknown graph ablation"):
+        ablate_edges(edge_index, roads, "rewired")
+    assert set(ABLATIONS) == {"real", "permuted", "none"}
+    # `degree` and `betweenness` are graph-derived, so an ablation leaves them
+    # describing a graph the model no longer has. Both entry points warn.
+    assert set(GRAPH_FEATURES) == {"degree", "betweenness"}
