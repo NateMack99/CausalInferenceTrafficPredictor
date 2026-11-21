@@ -19,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402  -- after the Agg backend is set
 from torch.utils.data import DataLoader
 
-from .data import BIN_MINUTES
+from .data import BIN_MINUTES, local_time
 from .events import Windows, crash_index
 from .graph import neighbourhood
 from .models import on_device, predict, resolve_device
@@ -365,6 +365,77 @@ def neighbour_coverage(
             }
         )
     return pd.DataFrame(rows)
+
+
+def monthly_coverage(
+    data: Windows,
+    crashes: pd.DataFrame,
+    events: pd.DataFrame,
+    controls: pd.DataFrame,
+) -> pd.DataFrame:
+    """Coverage, crash matches and control supply, month by month.
+
+    PR #4 asks for this *before* retraining on a longer period, and the reason
+    is that a study period is not uniformly usable. One aggregate coverage
+    figure hides a month where the feed went dark, where few crashes landed on
+    the monitored network, or where control supply collapsed -- and control
+    supply is the binding constraint on every matched estimate here, so a
+    month that cannot supply controls contributes crashes but no effects.
+
+    `controls_per_event` is the column to read for that: it is control windows
+    over analysis events for crashes in that month, not a coverage figure.
+    Rows are local calendar months, so they line up with `docs/data.md`.
+    """
+    observed = np.isfinite(data.values.numpy())
+    month = pd.PeriodIndex(local_time(data.times), freq="M")
+    frame = pd.DataFrame(
+        {
+            "month": month,
+            "observed": observed.mean(axis=1),
+            "roads": (observed.sum(axis=1)),
+        }
+    )
+    grid = frame.groupby("month", observed=True).agg(
+        bins=("observed", "size"),
+        observed_pct=("observed", lambda s: round(100 * float(s.mean()), 1)),
+        roads_seen=("roads", lambda s: int(s.max())),
+    )
+
+    def by_month(times) -> pd.Series:
+        if not len(times):
+            return pd.Series(dtype="int64")
+        return pd.PeriodIndex(local_time(pd.DatetimeIndex(times)), freq="M").value_counts()
+
+    matched = by_month(pd.to_datetime(crashes["crash_time"]))
+    event_month = pd.PeriodIndex(local_time(data.times[events["origin"].to_numpy()]), freq="M")
+    per_event = controls.groupby("crash_record_id").size()
+    supply = (
+        pd.DataFrame(
+            {
+                "month": event_month,
+                "controls": events["crash_record_id"].map(per_event).fillna(0).to_numpy(),
+            }
+        )
+        .groupby("month", observed=True)
+        .agg(analysis_events=("controls", "size"), total_controls=("controls", "sum"))
+    )
+
+    table = grid.join(supply, how="left")
+    table["matched_crashes"] = matched.reindex(table.index).fillna(0).astype("int64")
+    table["analysis_events"] = table["analysis_events"].fillna(0).astype("int64")
+    table["controls_per_event"] = (
+        table["total_controls"] / table["analysis_events"].replace(0, np.nan)
+    ).round(2)
+    table = table.drop(columns=["total_controls"])
+    order = [
+        "bins",
+        "observed_pct",
+        "roads_seen",
+        "matched_crashes",
+        "analysis_events",
+        "controls_per_event",
+    ]
+    return table[order].reset_index().astype({"month": "string"})
 
 
 def grid_coverage(data: Windows) -> float:

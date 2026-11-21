@@ -30,6 +30,7 @@ from traffic_gml.evaluate import (
     effects,
     evaluate,
     grid_coverage,
+    monthly_coverage,
     neighbour_coverage,
     placebo_corrected,
     trajectory_figure,
@@ -224,6 +225,10 @@ def main(argv: list[str] | None = None) -> dict:
 
     nearby = neighbour_coverage(train, edge_index, table, hops=args.exposure_hops)
     nearby.to_csv(args.out / "neighbour_coverage.csv", index=False)
+    monthly = monthly_coverage(train, tables["crashes"], table, control_table)
+    monthly.to_csv(args.out / "monthly_coverage.csv", index=False)
+    print("  coverage, matches and control supply by month:")
+    print(monthly.to_string(index=False).replace("\n", "\n  "))
     print(f"  neighbour observability (events with such a neighbour, of {len(table):,}):")
     for row in nearby.itertuples():
         print(
@@ -294,6 +299,7 @@ def main(argv: list[str] | None = None) -> dict:
                 "grid_coverage": round(coverage, 4),
                 "coverage_funnel": (funnel.to_dict("records") if funnel is not None else None),
                 "neighbour_coverage": nearby.to_dict("records"),
+                "monthly_coverage": monthly.to_dict("records"),
                 "effect_mph": estimate.set_index("minutes").effect.round(3).to_dict(),
                 "effect_model": args.effect_model,
                 "metrics": metrics,
