@@ -107,6 +107,21 @@ def write_processed(tables: dict[str, pd.DataFrame], out: str | Path) -> Path:
     return out
 
 
+def fitted_cells(reference: Windows) -> np.ndarray:
+    """`[bins, roads]` cells a window set was fitted on.
+
+    The fitted cells are the *targets* of its windows, not their origins: a
+    window at origin `o` learns from `[o+1, o+horizon]`. Marking origins let a
+    control whose own targets had been fitted pass a held-out check, because
+    its origin fell in the gap band while its targets did not.
+    """
+    trained = np.zeros(tuple(reference.values.shape), dtype=bool)
+    origins, fitted = reference.origins.numpy(), reference.usable.numpy()
+    for step in range(1, reference.horizon + 1):
+        trained[origins + step] |= fitted
+    return trained
+
+
 def event_datasets(
     reference: Windows,
     crashes: pd.DataFrame,
@@ -148,14 +163,7 @@ def event_datasets(
     if len(segment_ids) != reference.num_roads:
         raise ValueError("segment_ids does not match the grid these windows were built on")
 
-    # Cells the model was fitted on are the *targets* of training windows, not
-    # their origins: a window at origin `o` learns from `[o+1, o+horizon]`.
-    # Marking origins let a control whose own targets had been fitted pass the
-    # check, because its origin fell in the gap band while its targets did not.
-    trained = np.zeros(values.shape, dtype=bool)
-    origins, fitted = reference.origins.numpy(), reference.usable.numpy()
-    for step in range(1, horizon + 1):
-        trained[origins + step] |= fitted
+    trained = fitted_cells(reference)
 
     bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)

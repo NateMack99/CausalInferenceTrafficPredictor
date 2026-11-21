@@ -70,7 +70,7 @@ Estimate how reported crashes are associated with changes in traffic speeds **on
 ### PR #4 — Data Quality & Expanded Sample
 **Purpose:** Retain useful observations without hiding measurement problems or relaxing causal eligibility arbitrarily.
 
-- [ ] Expand the study period using the historical data already available; report coverage, matches, and control candidates by month before full retraining.
+- [ ] Expand the study period using the historical data already available; report coverage, matches, and control candidates by month before full retraining. *(The by-month table is implemented as `evaluate.monthly_coverage` and written by `scripts/midpoint.py`; the expanded run itself is still pending.)*
 - [ ] Audit the meaning of **0 mph** in the published data and compare analyses retaining versus excluding zeros; preserve the midpoint convention as a reference. *(`--drop-zero-speed` exists and defaults to off; the two analyses have not been run and the portal's definition of 0.0 is still unconfirmed.)*
 - [ ] Separate crash-event eligibility, observed-outcome eligibility, and eligibility for a particular matched-control method.
 - [ ] Compare practical pre-event observation thresholds; use masks for missing values and never score imputed outcomes as observations.

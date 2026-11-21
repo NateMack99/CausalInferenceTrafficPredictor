@@ -7,20 +7,25 @@ first one is the leakage rule: an injected effect must never reach an input.
 
 from __future__ import annotations
 
+import importlib.util
+import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 import torch
 
 from traffic_gml.data import BIN_MINUTES
-from traffic_gml.evaluate import effects
-from traffic_gml.events import build_windows
+from traffic_gml.evaluate import control_corrected, effect_recovery, effects
+from traffic_gml.events import build_windows, fitted_cells
 from traffic_gml.mock import make_mock
 from traffic_gml.models import build_model
 from traffic_gml.synthetic import (
     _pre_mean,
     effect_profile,
     inject,
+    matched_controls,
     treated_windows,
     untreated_windows,
 )
@@ -31,6 +36,18 @@ HISTORY, HORIZON = 6, 3
 @pytest.fixture(scope="module")
 def built():
     tables = make_mock(rows=4, cols=4, days=12, crashes=20, seed=0)
+    return build_windows(tables, history=HISTORY, horizon=HORIZON)
+
+
+@pytest.fixture(scope="module")
+def wide():
+    """A series long enough that the held-out split spans over a week.
+
+    `matched_controls` draws a control one or more whole weeks from its event,
+    so a shorter held-out split has no candidate that is not a fitted training
+    cell. 60 days puts val+test at about 18 days, which is enough.
+    """
+    tables = make_mock(rows=3, cols=3, days=60, crashes=40, seed=0)
     return build_windows(tables, history=HISTORY, horizon=HORIZON)
 
 
@@ -188,3 +205,189 @@ def test_the_floor_is_recorded_as_the_realised_effect(built):
         disruptions.truth.true_effect,
         disruptions.truth.treated - disruptions.truth.untreated,
     )
+
+
+def test_matched_controls_are_held_to_the_real_crash_rule(wide):
+    """A synthetic control must clear the same bar as a real crash's control, or
+    the benchmark scores an easier estimator than the study actually has."""
+    sets, edge_index = wide
+    test = sets["test"]
+    fitted = fitted_cells(sets["train"])
+    disruptions = inject(test, edge_index, events=10, seed=21)
+    pairs, windows = matched_controls(test, disruptions, fitted, controls=3, seed=21)
+
+    assert len(pairs)
+    slot = test.slot.numpy()
+    clean = test.clean.numpy()
+    origin_of = dict(zip(disruptions.events.event_id, disruptions.events.origin, strict=True))
+    for row in pairs.itertuples():
+        origin, t_, road = int(origin_of[row.event_id]), int(row.origin), int(row.road)
+        assert slot[t_] == slot[origin], "a control must sit at the same slot of the week"
+        assert abs(t_ - origin) >= HISTORY + HORIZON, "a control must not overlap its event"
+        assert not fitted[t_ + 1 : t_ + 1 + HORIZON, road].any(), "control target was fitted on"
+        assert clean[t_ - HISTORY + 1 : t_ + HORIZON + 1, road].all(), "control span not crash-free"
+
+    # Neighbour roads get controls too, or hop effects have nothing to correct
+    # against and only the crash road could be scored.
+    assert set(pairs.road) > set(disruptions.events.road)
+    assert pairs.groupby(["event_id", "road"]).size().max() <= 3
+
+
+def test_controls_read_the_untreated_grid_and_do_not_share_event_inputs(wide):
+    """Unlike `untreated_windows`, a control must not share the event's inputs.
+
+    That is what stops the correction collapsing into the identity: if the
+    prediction cancelled here too, the corrected estimate would be the truth.
+    """
+    sets, edge_index = wide
+    test = sets["test"]
+    disruptions = inject(test, edge_index, events=10, seed=22)
+    _, windows = matched_controls(
+        test, disruptions, fitted_cells(sets["train"]), controls=3, seed=22
+    )
+    assert np.shares_memory(windows.values.numpy(), disruptions.untreated)
+    assert not np.array_equal(windows.values.numpy(), disruptions.values)
+
+    treated = treated_windows(test, disruptions)
+    event_inputs = {treated[i]["x"].numpy().tobytes() for i in range(len(treated))}
+    control_inputs = {windows[i]["x"].numpy().tobytes() for i in range(len(windows))}
+    assert not (event_inputs & control_inputs)
+
+
+def test_matched_controls_repeat_under_a_seed(wide):
+    sets, edge_index = wide
+    test, fitted = sets["test"], fitted_cells(sets["train"])
+    disruptions = inject(test, edge_index, events=10, seed=23)
+    again, _ = matched_controls(test, disruptions, fitted, controls=3, seed=23)
+    same, _ = matched_controls(test, disruptions, fitted, controls=3, seed=23)
+    other, _ = matched_controls(test, disruptions, fitted, controls=3, seed=24)
+    pd.testing.assert_frame_equal(again, same)
+    assert not again.equals(other)
+
+
+def test_control_corrected_subtracts_the_mean_control_residual():
+    """Hand-built arithmetic, so a sign slip or a bad join cannot hide."""
+    event = pd.DataFrame(
+        {
+            "event_id": ["A", "A", "B"],
+            "road": [1, 2, 1],
+            "minutes": [10, 10, 10],
+            "effect": [-5.0, -2.0, -4.0],
+        }
+    )
+    control = pd.DataFrame(
+        {
+            "origin": [50, 60, 70],
+            "road": [1, 1, 2],
+            "minutes": [10, 10, 10],
+            "effect": [-1.0, -3.0, 0.5],
+        }
+    )
+    pairs = pd.DataFrame({"event_id": ["A", "A", "A"], "road": [1, 1, 2], "origin": [50, 60, 70]})
+    out = control_corrected(event, control, pairs).set_index(["event_id", "road"])
+    # Road 1 of A: bias is the mean of -1 and -3, so -5 - (-2) = -3.
+    assert out.loc[("A", 1), "estimated"] == pytest.approx(-3.0)
+    assert out.loc[("A", 2), "estimated"] == pytest.approx(-2.5)
+    # B has no matched control, so it is dropped rather than left uncorrected.
+    assert "B" not in out.index.get_level_values("event_id")
+
+
+def test_effect_recovery_reports_pooled_hop_and_horizon():
+    """The hop and horizon rows are the point: a pooled number alone cannot say
+    whether the spatial or time profile was recovered."""
+    estimate = pd.DataFrame(
+        {
+            "event_id": ["A", "A", "A", "A"],
+            "road": [1, 1, 2, 2],
+            "minutes": [10, 20, 10, 20],
+            "estimated": [-4.0, -2.0, -1.0, -1.0],
+        }
+    )
+    truth = pd.DataFrame(
+        {
+            "event_id": ["A", "A", "A", "A"],
+            "road": [1, 1, 2, 2],
+            "minutes": [10, 20, 10, 20],
+            "hop": [0, 0, 1, 1],
+            "true_effect": [-5.0, -2.5, -1.5, -0.5],
+        }
+    )
+    table = effect_recovery(estimate, truth).set_index(["group", "value"])
+
+    assert table.loc[("pooled", "all"), "n"] == 4
+    # Errors are +1.0, +0.5, +0.5, -0.5: mean bias +0.375, MAE 0.625.
+    assert table.loc[("pooled", "all"), "bias_mph"] == pytest.approx(0.375)
+    assert table.loc[("pooled", "all"), "effect_mae"] == pytest.approx(0.625)
+    assert table.loc[("hop", 0), "effect_mae"] == pytest.approx(0.75)
+    assert table.loc[("hop", 1), "effect_mae"] == pytest.approx(0.5)
+    assert table.loc[("minutes", 10), "n"] == 2
+    assert table.loc[("hop", 0), "true_mph"] == pytest.approx(-3.75)
+
+    with pytest.raises(ValueError, match="no estimated cell"):
+        effect_recovery(estimate.assign(event_id="Z"), truth)
+
+
+@pytest.fixture(scope="module")
+def wide_data(tmp_path_factory):
+    """Mock tables on disk, long enough for `matched_controls` to find controls."""
+    path = tmp_path_factory.mktemp("wide_data")
+    for name, table in make_mock(rows=3, cols=3, days=60, crashes=40, seed=0).items():
+        table.to_parquet(path / f"{name}.parquet", index=False)
+    return path
+
+
+def test_benchmark_script_scores_both_arms_on_the_same_cells(wide_data, tmp_path):
+    """The library functions above are checked by hand; this runs the wiring.
+
+    Every finding worth having in `scripts/benchmark.py` was in `main()` --
+    the per-model seeding, the two estimators drifting onto different samples,
+    and a mis-divided control count written into the run record -- so the
+    script needs one test that actually executes it.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "benchmark", Path(__file__).resolve().parents[1] / "scripts" / "benchmark.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    out = tmp_path / "bench"
+    recovery = module.main(
+        [
+            "--data",
+            str(wide_data),
+            "--out",
+            str(out),
+            "--models",
+            "gcn",
+            "--events",
+            "12",
+            "--epochs",
+            "2",
+            "--patience",
+            "1",
+            "--seed",
+            "7",
+        ]
+    )
+
+    for name in ("effect_recovery.csv", "forecast.csv", "truth.csv", "controls.csv"):
+        assert (out / name).exists(), f"{name} was not written"
+
+    # Reproducibility: seed, arguments and data version all recorded.
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["args"]["seed"] == "7"
+    assert summary["benchmark"]["seed"] == 7
+    assert summary["code"] and summary["data"]["rows"]["speeds"]
+
+    # The two estimators must describe the same cells, or their gap is a
+    # different sample rather than the bias correction.
+    pooled = recovery[recovery.group == "pooled"].set_index("estimator")
+    assert pooled.loc["corrected", "n"] == pooled.loc["raw", "n"]
+    assert set(recovery.estimator) == {"corrected", "raw"}
+    assert {"pooled", "hop", "minutes"} <= set(recovery.group)
+
+    # Cohort loss from missing controls is recorded rather than silent.
+    assert summary["cells_after_correction"] <= summary["cells_before_correction"]
+    # Per event *road*, so it cannot exceed what was requested per road.
+    assert 0 < summary["controls_per_event_road"] <= int(summary["args"]["controls"])
+    assert summary["event_roads"] >= summary["benchmark"]["events"]
