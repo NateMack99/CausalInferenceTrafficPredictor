@@ -49,7 +49,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     parser.add_argument("--out", type=Path, default=Path("outputs/benchmark"))
     parser.add_argument("--processed", type=Path, default=Path("data/processed"))
-    parser.add_argument("--models", nargs="*", default=list(MODELS), choices=list(MODELS))
+    parser.add_argument("--models", nargs="+", default=list(MODELS), choices=list(MODELS))
 
     windows = parser.add_argument_group("windows")
     windows.add_argument("--history", type=int, default=12)
@@ -134,15 +134,24 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
     )
     treated = treated_windows(test, disruptions)
     identity = disruptions.events[["event_id", "origin"]]
+    # Per (event, road): `pairs` has a row per (event, road, control), so
+    # dividing by events would multiply by the roads in each event's rings.
+    event_roads = max(len(pairs.drop_duplicates(subset=["event_id", "road"])), 1)
+    per_road = len(pairs) / event_roads
     print(
         f"injected {disruptions.settings['events']} of {args.events} requested events; "
         f"{len(disruptions.truth):,} labelled cells, "
-        f"{len(pairs) / max(pairs.event_id.nunique(), 1):.1f} controls per event road"
+        f"{per_road:.2f} controls per event road over {event_roads:,} roads"
     )
 
     recovery, forecast = [], {}
     for name in args.models:
-        model = build_model(name, train, args.hidden, 2, 0.1)
+        # Re-seed per model, as `scripts/midpoint.py` does. Seeding once would
+        # leave each model's initialisation and shuffling dependent on what ran
+        # before it, so `--models gcn` and the full list would disagree and the
+        # recorded seed would reproduce neither.
+        set_seed(args.seed)
+        model = build_model(name, train, hidden=args.hidden)
         fit(
             model,
             sets,
@@ -161,17 +170,27 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         control = effects(model, control_windows, edge_index, args.batch_size, args.device)
         corrected = control_corrected(event, control, pairs)
 
-        for estimator, frame in (
-            ("corrected", corrected),
-            ("raw", event.assign(estimated=event["effect"])),
-        ):
-            table = effect_recovery(frame, disruptions.truth)
-            recovery.append(table.assign(model=name, estimator=estimator))
+        # Both estimators are scored on the *same* cells. `control_corrected`
+        # drops a cell whose matched control is missing, and that loss is
+        # hop-dependent, so deriving `raw` from the full event frame instead
+        # would compare bias correction against a different, differently
+        # populated sample and read the gap as the correction's doing.
+        scored = {
+            "corrected": corrected,
+            "raw": corrected.assign(estimated=corrected["effect"]),
+        }
+        # Not `tables`: that name holds the data tables this run was built from.
+        scores = {}
+        for estimator, frame in scored.items():
+            scores[estimator] = effect_recovery(frame, disruptions.truth)
+            recovery.append(scores[estimator].assign(model=name, estimator=estimator))
 
-        pooled = recovery[-2].query("group == 'pooled'").iloc[0]
+        pooled = scores["corrected"].query("group == 'pooled'").iloc[0]
+        hops = scores["corrected"].query("group == 'hop'").sort_values("value")
+        by_hop = "  ".join(f"h{int(r.value)} {r.effect_mae:5.3f}" for r in hops.itertuples())
         print(
             f"{name:16s} forecast MAE {forecast[name]['mae']:6.3f} mph   "
-            f"corrected effect MAE {pooled.effect_mae:6.3f}  bias {pooled.bias_mph:+.3f}"
+            f"effect MAE pooled {pooled.effect_mae:6.3f}  bias {pooled.bias_mph:+.3f}   {by_hop}"
         )
 
     recovery = pd.concat(recovery, ignore_index=True)
@@ -193,8 +212,12 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
                 "code": code_version(),
                 "data": data_version(tables, Path(source)),
                 "benchmark": disruptions.settings,
-                "controls_per_event_road": round(len(pairs) / max(pairs.event_id.nunique(), 1), 2),
+                "controls_per_event_road": round(per_road, 2),
+                "event_roads": int(event_roads),
+                "control_windows": int(len(control_windows)),
                 "labelled_cells": int(len(disruptions.truth)),
+                "cells_before_correction": int(len(event)),
+                "cells_after_correction": int(len(corrected)),
                 "forecast": forecast,
             },
             indent=2,

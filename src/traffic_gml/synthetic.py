@@ -139,6 +139,15 @@ def inject(
     values = untreated.copy()
     history, horizon = reference.history, reference.horizon
     observed = np.isfinite(untreated)
+    # A ring cell must be crash-free as well as observed. The event road is
+    # crash-free because it came from `usable`, but a ring road is not checked
+    # by anything: contamination spreads `exposure_hops` from a real crash and
+    # a ring sits up to `hops` from the event, so a crash three or four hops
+    # out dirties the ring while leaving the event road clean. Injecting there
+    # would stack a fake slowdown on a real one and label only the fake part,
+    # and the control arm already demands `clean`, so the two arms would be
+    # held to different bars -- biasing the very hop rows this exists to score.
+    clean = reference.clean.numpy()
     origins = reference.origins.numpy()
     profile = effect_profile(shape, horizon, duration)
 
@@ -198,7 +207,7 @@ def inject(
             wanted = size * hop_decay**hop * profile
             for step, want in enumerate(wanted):
                 bin_ = origin + 1 + step
-                seen = ring[observed[bin_, ring]]
+                seen = ring[observed[bin_, ring] & clean[bin_, ring]]
                 if not len(seen) or want <= 0:
                     continue
                 before = untreated[bin_, seen]
@@ -264,9 +273,14 @@ def treated_windows(reference: Windows, disruptions: Disruptions) -> Windows:
     """Event windows over the treated grid, scoring every road a disruption reached.
 
     The returned set shares `reference`'s normalisation statistics and clock
-    features, so a model trained on `reference` can be applied directly. Only
-    cells that carry a known effect are unmasked, which is what makes the
-    per-hop recovery in PR #9 readable.
+    features, so a model trained on `reference` can be applied directly.
+
+    `usable` is per-road and broadcasts over the horizon, so a road that
+    carries a known effect at one step is unmasked at every step. That can
+    yield rows with no truth label -- a step where the cell was unobserved or
+    crash-contaminated. `evaluate.effect_recovery` inner-joins on
+    (event_id, road, minutes), so those rows are dropped before anything is
+    scored; do not aggregate this frame without joining it to `truth` first.
     """
     events = disruptions.events
     usable = np.zeros((len(events), reference.num_roads), dtype=bool)
@@ -290,8 +304,15 @@ def matched_controls(
 
     Held to the same rule as a real crash's control in `event_datasets`: the
     same road at the same slot of the week in another week, crash-free across
-    its whole span, and never a cell the forecaster was fitted on. `fitted`
-    comes from `events.fitted_cells(train_set)`.
+    its whole span, and never a cell in `fitted`.
+
+    `fitted` is whatever the caller passes, normally
+    `events.fitted_cells(train_set)` -- which covers cells a gradient step
+    touched and **not** the validation period that early stopping selected on.
+    A control one or more whole weeks from a held-out event frequently lands in
+    validation, so this is the usual case rather than an edge one. Pass
+    `fitted_cells(train) | fitted_cells(val)` to exclude those too, and expect
+    control supply to fall sharply when you do.
 
     These windows read the **untreated** grid, so each is a genuine
     no-disruption window, and the correction they supply is the forecaster's
@@ -320,7 +341,8 @@ def matched_controls(
     origin_of = dict(zip(disruptions.events["event_id"], disruptions.events["origin"], strict=True))
 
     pairs: list[dict] = []
-    for event_id, road in disruptions.truth.groupby(["event_id", "road"]).groups:
+    wanted = disruptions.truth[["event_id", "road"]].drop_duplicates()
+    for event_id, road in zip(wanted["event_id"], wanted["road"], strict=True):
         origin, road = int(origin_of[event_id]), int(road)
         eligible = [
             int(t)
@@ -349,10 +371,15 @@ def matched_controls(
             "speed window, or inject into a longer held-out period."
         )
 
-    unique = table.drop_duplicates(subset=["origin", "road"])
-    only = np.zeros((len(unique), reference.num_roads), dtype=bool)
-    only[np.arange(len(unique)), unique["road"].to_numpy()] = True
-    windows = reference.at(unique["origin"].to_numpy(), only)
+    # One window per distinct origin, unmasking every road wanted there. Roads
+    # of one event share candidate bins, so a row per (origin, road) rebuilt
+    # the same origin about seven times and every model paid for it again. The
+    # mask does not reach the prediction -- `x_mask` is built from `clean` and
+    # `isfinite`, never from `usable` -- so the rows this yields are identical.
+    origins = np.unique(table["origin"].to_numpy())
+    only = np.zeros((len(origins), reference.num_roads), dtype=bool)
+    only[np.searchsorted(origins, table["origin"].to_numpy()), table["road"].to_numpy()] = True
+    windows = reference.at(origins, only)
     windows.values = torch.from_numpy(values)
     return table, windows
 

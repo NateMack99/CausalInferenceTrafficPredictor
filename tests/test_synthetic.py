@@ -7,6 +7,10 @@ first one is the leakage rule: an injected effect must never reach an input.
 
 from __future__ import annotations
 
+import importlib.util
+import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -321,3 +325,69 @@ def test_effect_recovery_reports_pooled_hop_and_horizon():
 
     with pytest.raises(ValueError, match="no estimated cell"):
         effect_recovery(estimate.assign(event_id="Z"), truth)
+
+
+@pytest.fixture(scope="module")
+def wide_data(tmp_path_factory):
+    """Mock tables on disk, long enough for `matched_controls` to find controls."""
+    path = tmp_path_factory.mktemp("wide_data")
+    for name, table in make_mock(rows=3, cols=3, days=60, crashes=40, seed=0).items():
+        table.to_parquet(path / f"{name}.parquet", index=False)
+    return path
+
+
+def test_benchmark_script_scores_both_arms_on_the_same_cells(wide_data, tmp_path):
+    """The library functions above are checked by hand; this runs the wiring.
+
+    Every finding worth having in `scripts/benchmark.py` was in `main()` --
+    the per-model seeding, the two estimators drifting onto different samples,
+    and a mis-divided control count written into the run record -- so the
+    script needs one test that actually executes it.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "benchmark", Path(__file__).resolve().parents[1] / "scripts" / "benchmark.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    out = tmp_path / "bench"
+    recovery = module.main(
+        [
+            "--data",
+            str(wide_data),
+            "--out",
+            str(out),
+            "--models",
+            "gcn",
+            "--events",
+            "12",
+            "--epochs",
+            "2",
+            "--patience",
+            "1",
+            "--seed",
+            "7",
+        ]
+    )
+
+    for name in ("effect_recovery.csv", "forecast.csv", "truth.csv", "controls.csv"):
+        assert (out / name).exists(), f"{name} was not written"
+
+    # Reproducibility: seed, arguments and data version all recorded.
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["args"]["seed"] == "7"
+    assert summary["benchmark"]["seed"] == 7
+    assert summary["code"] and summary["data"]["rows"]["speeds"]
+
+    # The two estimators must describe the same cells, or their gap is a
+    # different sample rather than the bias correction.
+    pooled = recovery[recovery.group == "pooled"].set_index("estimator")
+    assert pooled.loc["corrected", "n"] == pooled.loc["raw", "n"]
+    assert set(recovery.estimator) == {"corrected", "raw"}
+    assert {"pooled", "hop", "minutes"} <= set(recovery.group)
+
+    # Cohort loss from missing controls is recorded rather than silent.
+    assert summary["cells_after_correction"] <= summary["cells_before_correction"]
+    # Per event *road*, so it cannot exceed what was requested per road.
+    assert 0 < summary["controls_per_event_road"] <= int(summary["args"]["controls"])
+    assert summary["event_roads"] >= summary["benchmark"]["events"]
