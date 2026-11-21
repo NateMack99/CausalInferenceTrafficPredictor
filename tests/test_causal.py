@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 from traffic_gml.causal import (
+    against_placebo,
     arm_table,
     covariate_balance,
     event_study,
@@ -68,17 +69,61 @@ def test_did_recovers_the_injected_hop_and_time_profile(study):
         assert table.loc[(0, (step + 1) * 10), "effect"] == pytest.approx(expected, abs=1.2)
 
 
-def test_pre_trend_placebo_is_flat(study):
-    """A crash cannot move speeds before it happens. If this came out sloped,
-    the headline estimate would partly be arms that were already diverging."""
-    tables, sets, edge_index, *_, did = study
-    _, _, _, _, events, control, _ = study
-    trends = pre_trends(sets["train"], events, control, edge_index, hops=1, leads=3)
+def test_placebo_is_small_against_the_effect_being_claimed(study):
+    """A crash cannot move speeds before it happens, so the placebo must be small
+    **relative to the effect being claimed**.
 
-    assert len(trends)
+    An absolute bound is worthless here: the mock's effects are about 8 mph and
+    the real data's about 0.2, so `abs(placebo) < 1.0` passes whatever the real
+    estimator does. `against_placebo` is the table that makes the ratio visible,
+    and this asserts on that ratio instead.
+    """
+    _, sets, edge_index, _, events, control, did = study
+    trends = pre_trends(sets["train"], events, control, edge_index, hops=2, leads=3)
+    checked = against_placebo(summarise(did), trends)
+
+    assert len(checked) == 9, "three hop rings by three lead steps"
+    assert {"effect", "low", "high", "placebo", "placebo_share"} <= set(checked.columns)
+
+    # Hops 0 and 1 carry a real injected effect, so the placebo must be a small
+    # fraction of it. Hop 2 is excluded on purpose -- see below.
+    real = checked[checked.hop < 2]
+    assert (real.placebo_share < 0.15).all(), real.to_string(index=False)
+
+    # And the placebo itself is indistinguishable from zero.
     for row in trends.itertuples():
-        assert abs(row.effect) < 1.0, f"pre-trend at hop {row.hop} is {row.effect}"
-        assert row.low <= 0 <= row.high, f"pre-trend at hop {row.hop} excludes zero"
+        assert row.low <= 0 <= row.high, f"placebo at hop {row.hop} excludes zero"
+
+    # The share is deliberately uninformative where no effect was injected: hop 2
+    # has a near-zero effect, so dividing by it blows the ratio up. That is the
+    # documented behaviour and the reason the ratio is read beside the interval.
+    null_ring = checked[checked.hop == 2]
+    assert (null_ring.effect.abs() < 1.0).all()
+    assert null_ring.placebo_share.max() > real.placebo_share.max()
+
+
+def test_against_placebo_divides_the_right_way_round():
+    """Hand-built, so a flipped ratio cannot hide behind plausible-looking data."""
+    effect = pd.DataFrame(
+        {
+            "hop": [0, 1],
+            "minutes": [10, 10],
+            "effect": [-4.0, -0.2],
+            "low": [-5.0, -0.5],
+            "high": [-3.0, 0.1],
+            "events": [100, 100],
+        }
+    )
+    placebo = pd.DataFrame({"hop": [0, 1], "minutes": [10, 10], "effect": [-0.4, -0.18]})
+    out = against_placebo(effect, placebo).set_index("hop")
+
+    assert out.loc[0, "placebo_share"] == pytest.approx(0.10)
+    # The row whose placebo nearly equals its effect is the one to catch.
+    assert out.loc[1, "placebo_share"] == pytest.approx(0.90)
+    assert out.loc[1, "placebo"] == pytest.approx(-0.18)
+    # A zero effect must not raise or report a ratio.
+    zeroed = against_placebo(effect.assign(effect=[0.0, -0.2]), placebo)
+    assert pd.isna(zeroed["placebo_share"].iloc[0])
 
 
 def test_intervals_are_event_clustered_not_cell_counted():

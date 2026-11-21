@@ -125,12 +125,18 @@ def event_datasets(
     segment_ids: np.ndarray,
     controls: int = 1,
     seed: int = 0,
+    held_out: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, Windows, Windows]:
     """Before/after windows for each matched crash, plus accident-free controls.
 
     The event origin is the last bin before the crash, so `x` is entirely
     pre-crash and `y` spans the crash itself. Only the crash's own road is
     unmasked, so a window scores that road and nothing else.
+
+    `held_out` keeps a control out of the cells the forecaster was fitted on.
+    That is required for a model-based estimate and meaningless without a
+    model, so `causal.py`'s event study passes `False`; see the note on the
+    `trained` mask below for what leaving it on costs.
 
     Both arms are held to the same standard, which is what makes the control a
     placebo rather than a flattering one:
@@ -164,10 +170,18 @@ def event_datasets(
     # their origins: a window at origin `o` learns from `[o+1, o+horizon]`.
     # Marking origins let a control whose own targets had been fitted pass the
     # check, because its origin fell in the gap band while its targets did not.
+    #
+    # `held_out=False` waives this. It exists for an estimator with no model,
+    # where there is nothing to be in-sample of. Keeping it on costs more than
+    # it sounds: on the frozen data it pushed every control into the weeks
+    # *after* its event (mean +3.3 weeks, 87.8% later) and cut supply to 1.9
+    # per crash, because the only cells left were outside the training span
+    # entirely. Never pass False for a model-based estimate.
     trained = np.zeros(values.shape, dtype=bool)
-    origins, fitted = reference.origins.numpy(), reference.usable.numpy()
-    for step in range(1, horizon + 1):
-        trained[origins + step] |= fitted
+    if held_out:
+        origins, fitted = reference.origins.numpy(), reference.usable.numpy()
+        for step in range(1, horizon + 1):
+            trained[origins + step] |= fitted
 
     bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)

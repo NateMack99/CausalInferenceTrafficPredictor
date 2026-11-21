@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from traffic_gml.causal import (
+    against_placebo,
     covariate_balance,
     event_study,
     fixed_cohort,
@@ -60,6 +61,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.data is None and not (args.speeds and args.graph and args.crashes):
         parser.error("pass --data, or all of --speeds, --graph and --crashes")
+    if args.hops > args.exposure_hops:
+        # Past the exposure radius the event arm stops being crash-dirty, so the
+        # control arm's clean-post filter starts applying to both arms alike and
+        # the distance profile gets a step at that radius which is the filter,
+        # not traffic.
+        parser.error(
+            f"--hops {args.hops} exceeds --exposure-hops {args.exposure_hops}; rings beyond "
+            "the masking radius are filtered differently and their effects are not comparable"
+        )
     return args
 
 
@@ -87,8 +97,19 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
     )
     train = sets["train"]
     segment_ids = np.sort(tables["segments"]["segment_id"].unique())
+    # `held_out=False`: that rule keeps controls out of cells a *forecaster* was
+    # fitted on, and this estimator has no forecaster. Leaving it on pushed every
+    # control into the weeks after its event (mean +3.3 weeks, 88% later) and cut
+    # supply to 1.9 per crash, because the only admissible cells sat outside the
+    # training span. Waiving it gives 2,720 events at 4.7 controls each, a
+    # symmetric offset, and better pre-event balance on the frozen data.
     table, controls, _, _ = event_datasets(
-        train, tables["crashes"], segment_ids, controls=args.controls, seed=args.seed
+        train,
+        tables["crashes"],
+        segment_ids,
+        controls=args.controls,
+        seed=args.seed,
+        held_out=False,
     )
     events = table.rename(columns={"crash_record_id": "event_id"})
     control = controls.rename(columns={"crash_record_id": "event_id"})
@@ -122,11 +143,30 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
     did.to_csv(args.out / "effects_by_cell.csv", index=False)
     figure = hop_effect_figure(available, args.out / "hop_effects.png")
 
+    checked = against_placebo(available, tables_out["pre_trends"])
+    tables_out["effect_against_placebo"] = checked
+    checked.to_csv(args.out / "effect_against_placebo.csv", index=False)
+
     print("\neffect by hop ring, event-clustered 95% intervals:")
     print(available.to_string(index=False))
-    print("\npre-trend placebo (a crash cannot move speeds before it happens):")
-    print(tables_out["pre_trends"].to_string(index=False))
-    print("\ncovariate balance on the crash road:")
+    print(
+        "\nAGAINST THE PLACEBO -- read this before quoting any row above. The placebo\n"
+        "estimates something the crash cannot have caused, so a share near 1 means the\n"
+        "arms were already diverging and the row is not a crash effect:"
+    )
+    print(checked.to_string(index=False))
+    worst = checked.loc[checked["placebo_share"].idxmax()] if len(checked) else None
+    if worst is not None and worst["placebo_share"] >= 0.33:
+        print(
+            f"  -> hop {int(worst['hop'])} at {int(worst['minutes'])} min has a placebo "
+            f"{worst['placebo_share']:.0%} of its effect. Do not report it as spillover."
+        )
+    print(
+        f"\nfixed cohort ({cohort.event_id.nunique():,} of {did.event_id.nunique():,} events "
+        "observed at every hop and step) -- better identified, weaker:"
+    )
+    print(tables_out["effect_fixed_cohort"].to_string(index=False))
+    print("\ncovariate balance on the crash road (read `gap` in mph, not std_diff):")
     print(tables_out["covariate_balance"].to_string(index=False))
 
     (args.out / "summary.json").write_text(
@@ -141,6 +181,9 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
                 "share_with_second_crash": round(float(overlapping), 4),
                 "fixed_cohort_events": int(cohort.event_id.nunique()) if len(cohort) else 0,
                 "effect_by_hop": available.to_dict("records"),
+                "effect_against_placebo": checked.to_dict("records"),
+                "effect_fixed_cohort": tables_out["effect_fixed_cohort"].to_dict("records"),
+                "covariate_balance": tables_out["covariate_balance"].to_dict("records"),
             },
             indent=2,
             default=str,

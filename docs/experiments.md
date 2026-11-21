@@ -23,6 +23,9 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | Metrics | masked MAE and RMSE in mph, overall and per horizon step | `evaluate.evaluate` |
 | Controls per crash | 5 requested (about 1.9 available) | `--controls` |
 | Effect model | `gcn` | `--effect-model` |
+| Event-study rings | 2, must not exceed `--exposure-hops` | `--hops` |
+| Event-study controls | 5 per crash, held-out rule waived | `--controls` |
+| Pre-trend placebo | 3 lead bins | `--leads` |
 
 Conventions that are not flags:
 
@@ -77,6 +80,54 @@ Measuring the real contamination duration would recover some of these.
 **The analysis sample is 2,529.** Requiring *every* pre and post bin observed
 leaves 297, a strict subset reported for reference. Do not quote 297 as the sample
 size: the estimator masks unobserved targets rather than requiring complete series.
+
+## Matched event study, March–April 2025 (PR #7)
+
+The first real-data result since the midpoint. Run on the frozen
+`data/processed` set with `--hops 2 --controls 5`, seed 42, no forecaster
+involved. **The direct effect survives its checks; the spillover does not.**
+
+`event_datasets` is called with `held_out=False`, because that rule keeps
+controls out of cells a *forecaster* was fitted on and this estimator has
+none. Leaving it on cost more than it sounds:
+
+| | events | controls/event | control offset | pre-trend balance |
+| --- | ---: | ---: | ---: | ---: |
+| `held_out=True` | 2,527 | 1.90 | **+3.29 weeks**, 88% later | −0.068 |
+| `held_out=False` | 2,720 | 4.72 | −0.15 weeks, 48% later | −0.047 |
+
+Effect by hop ring, event-clustered 95% intervals, against the pre-trend
+placebo at the same step:
+
+| hop | effect at 10 min | interval | placebo | placebo share |
+| ---: | ---: | --- | ---: | ---: |
+| 0 | −0.255 | [−0.498, −0.012] | −0.069 | 0.27 |
+| 1 | −0.137 | [−0.278, +0.004] | −0.090 | **0.66** |
+| 2 | −0.146 | [−0.265, −0.027] | −0.086 | **0.59** |
+
+All six hop-0 rows exclude zero and their placebo shares run 0.17–0.27, so the
+crash-road effect is between −0.26 and −0.68 mph and is not explained by
+pre-existing divergence. The hop-1 and hop-2 rows are a different matter: their
+placebos are 59–66% of the estimates at 10 minutes, and hop 2 at 30 minutes has
+a placebo **575%** of its effect. `covariate_balance` agrees — the crash arm's
+pre-window trend is −0.315 mph against the control arm's −0.136, a gap of
+−0.179, which is larger than the entire hop-1 estimate.
+
+**No spillover number from this table may be written up as evidence that
+congestion spreads across the graph.** What it supports is that crash roads slow
+and that the measured neighbour difference is, at this sample and specification,
+indistinguishable from arms that were already diverging.
+
+Sample: 2,720 events, 12,827 control pairs, 879 roads, 146,007 estimated cells
+over 2,713 events. 0.6% of cells carry a second reported crash on the same road
+inside the window. The fixed cohort — events observed at every hop and step — is
+671 of 2,713 (24.7%), and most of its rows stop excluding zero.
+
+Known limits of this table, beyond the placebo: the road and control sets vary
+step by step, so a time profile is read across changing populations; the
+control arm's crash-free post-span filter is one-sided and keeps the calmer
+control weeks, worth up to 0.02 mph; and the crash-time rounding recorded below
+attenuates everything here.
 
 ## Frozen midpoint baseline
 

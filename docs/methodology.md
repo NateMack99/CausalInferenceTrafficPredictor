@@ -75,6 +75,12 @@ PR #3 plus `scripts/midpoint.py`:
   cells where a *second* crash was reported on the same road inside the window.
   Validated against the mock fixture's injected shock, where it recovers −8.0 / −3.6 / 0
   mph at 0 / 1 / 2 hops and the `0.7^step` time decay.
+
+  On the real March–April data it finds a crash-road effect of −0.26 to −0.68 mph whose
+  placebo share is 0.17–0.27, and 1-/2-hop differences whose placebos are 59–66% of the
+  estimate. `docs/experiments.md` records the numbers. **The spillover rows are therefore
+  not evidence that congestion spreads**, and `causal.against_placebo` exists so that
+  ratio is printed beside the effect rather than sitting in a second table nobody opens.
 - A nested coverage funnel ending at the analysis sample, and per-hop neighbour
   observability for that sample (`evaluate.coverage_funnel`, `evaluate.neighbour_coverage`).
   The funnel's stricter rows sit *inside* the analysis sample: requiring every bin observed
@@ -160,7 +166,10 @@ These effects are observational, so they are assumption-dependent:
   without the crash. They adjust for observed congestion patterns, not every hidden cause.
 - Overlapping or nearby simultaneous crashes have to be excluded or flagged.
 - Pre-event trends, placebo windows, and selection into which crashes are usable all need
-  checking before any estimate is read as causal.
+  checking before any estimate is read as causal. This has now been done for the matched
+  event study, and the crash arm **is** already slowing before the crash: its pre-window
+  trend is −0.315 mph against the control arm's −0.136. That gap is larger than the
+  1-hop estimate, which is why the spillover is unresolved rather than small.
 - Uncertainty has to be clustered by crash event once neighbour roads are in play.
 
 Report these alongside every estimate. The research rules the code is held to are in
