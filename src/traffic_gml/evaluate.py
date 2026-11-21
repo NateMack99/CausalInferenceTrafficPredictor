@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt  # noqa: E402  -- after the Agg backend is set
 from torch.utils.data import DataLoader
 
 from .data import BIN_MINUTES, local_time
-from .events import Windows, crash_index
+from .events import Windows, crash_index, hop_rings
 from .graph import neighbourhood
 from .models import on_device, predict, resolve_device
 
@@ -205,6 +205,45 @@ def effect_figure(event: pd.DataFrame, control: pd.DataFrame, path: str | Path) 
     )
     axis.set_xlabel("minutes after the crash (bin end)", color=MUTED, fontsize=9)
     axis.set_ylabel("observed − predicted (mph)", color=MUTED, fontsize=9)
+    axis.legend(frameon=False, labelcolor=INK, fontsize=9)
+    return _save(figure, path)
+
+
+def hop_effect_figure(summary: pd.DataFrame, path: str | Path) -> Path:
+    """Matched event-study effect over time, one line per hop ring.
+
+    The figure the spillover question is answered with: if connectivity
+    matters, hop 1 sits between hop 0 and zero, and hop 2 nearer still. Bands
+    are the event-clustered intervals `causal.summarise` reports, so they
+    reflect the number of events and not the number of road-time cells.
+    """
+    figure, axis = _axes()
+    axis.axhline(0, color="#b9b8b2", linewidth=1)
+    for i, (hop, group) in enumerate(summary.groupby("hop")):
+        group = group.sort_values("minutes")
+        axis.plot(
+            group["minutes"],
+            group["effect"],
+            label=f"{int(hop)} hop" + ("s" if hop != 1 else ""),
+            color=SERIES[i % len(SERIES)],
+            marker=MARKERS[i % len(MARKERS)],
+            markersize=5,
+            linewidth=2,
+        )
+        if {"low", "high"} <= set(group.columns) and group[["low", "high"]].notna().all().all():
+            axis.fill_between(
+                group["minutes"],
+                group["low"].astype(float),
+                group["high"].astype(float),
+                color=SERIES[i % len(SERIES)],
+                alpha=0.15,
+                linewidth=0,
+            )
+    axis.set_title(
+        "Matched event-study effect by road distance", color=INK, fontsize=11, loc="left"
+    )
+    axis.set_xlabel("minutes after the crash (bin end)", color=MUTED, fontsize=9)
+    axis.set_ylabel("speed change vs matched control (mph)", color=MUTED, fontsize=9)
     axis.legend(frameon=False, labelcolor=INK, fontsize=9)
     return _save(figure, path)
 
@@ -401,15 +440,14 @@ def neighbour_coverage(
     """
     observed = np.isfinite(data.values.numpy())
     history, horizon = data.history, data.horizon
-    reach = [neighbourhood(edge_index, data.num_roads, k) for k in range(hops + 1)]
+    reach = hop_rings(edge_index, data.num_roads, hops)
 
     rows = []
     for hop in range(1, hops + 1):
         counts = {"any": 0, "half": 0, "full": 0, "trajectory": 0, "in_graph": 0, "usable": 0}
         for origin, road in zip(events["origin"], events["road"], strict=True):
             origin, road = int(origin), int(road)
-            inner = set(reach[hop - 1][road].indices)
-            ring = np.array([n for n in reach[hop][road].indices if n not in inner], dtype=int)
+            ring = np.setdiff1d(reach[hop][road], reach[hop - 1][road])
             if not len(ring):
                 continue
             counts["in_graph"] += 1

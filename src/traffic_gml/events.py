@@ -107,6 +107,18 @@ def write_processed(tables: dict[str, pd.DataFrame], out: str | Path) -> Path:
     return out
 
 
+def hop_rings(edge_index: Tensor, num_roads: int, hops: int) -> list[list[np.ndarray]]:
+    """`rings[k][road]`: every road within `k` undirected hops, self included.
+
+    Inclusive, so an exclusive ring is `setdiff1d(rings[k][road],
+    rings[k-1][road])`. One definition shared by every module that reports a
+    hop, because a coverage table and an effect table built on different hop
+    definitions cannot be read against each other.
+    """
+    reach = [neighbourhood(edge_index, num_roads, k) for k in range(hops + 1)]
+    return [[matrix[road].indices for road in range(num_roads)] for matrix in reach]
+
+
 def fitted_cells(reference: Windows) -> np.ndarray:
     """`[bins, roads]` cells a window set was fitted on.
 
@@ -128,12 +140,18 @@ def event_datasets(
     segment_ids: np.ndarray,
     controls: int = 1,
     seed: int = 0,
+    held_out: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, Windows, Windows]:
     """Before/after windows for each matched crash, plus accident-free controls.
 
     The event origin is the last bin before the crash, so `x` is entirely
     pre-crash and `y` spans the crash itself. Only the crash's own road is
     unmasked, so a window scores that road and nothing else.
+
+    `held_out` keeps a control out of the cells the forecaster was fitted on.
+    That is required for a model-based estimate and meaningless without a
+    model, so `causal.py`'s event study passes `False`; see the note on the
+    `trained` mask below for what leaving it on costs.
 
     Both arms are held to the same standard, which is what makes the control a
     placebo rather than a flattering one:
@@ -163,7 +181,13 @@ def event_datasets(
     if len(segment_ids) != reference.num_roads:
         raise ValueError("segment_ids does not match the grid these windows were built on")
 
-    trained = fitted_cells(reference)
+    # `held_out=False` waives the fitted-cell rule. It exists for an estimator
+    # with no model, where there is nothing to be in-sample of. Keeping it on
+    # costs more than it sounds: on the frozen data it pushed every control
+    # into the weeks *after* its event (mean +3.3 weeks, 87.8% later) and cut
+    # supply to 1.9 per crash, because the only admissible cells sat outside
+    # the training span entirely. Never pass False for a model-based estimate.
+    trained = fitted_cells(reference) if held_out else np.zeros(values.shape, dtype=bool)
 
     bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)

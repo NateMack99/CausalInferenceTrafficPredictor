@@ -36,8 +36,7 @@ import torch
 from torch import Tensor
 
 from .data import BIN_MINUTES
-from .events import WEEK_SLOTS, Windows
-from .graph import neighbourhood
+from .events import WEEK_SLOTS, Windows, hop_rings
 
 #: Time profiles. Both are driven by one `duration`, in bins.
 SHAPES = ("decay", "plateau")
@@ -80,12 +79,6 @@ def effect_profile(shape: str, horizon: int, duration: float) -> np.ndarray:
     if shape == "plateau":
         return (step < duration).astype("float64")
     raise ValueError(f"unknown shape {shape!r}; choose from {SHAPES}")
-
-
-def _rings(edge_index: Tensor, num_roads: int, hops: int) -> list[list[np.ndarray]]:
-    """`rings[k][road]`: every road within `k` undirected hops, self included."""
-    reach = [neighbourhood(edge_index, num_roads, k) for k in range(hops + 1)]
-    return [[matrix[road].indices for road in range(num_roads)] for matrix in reach]
 
 
 def _pre_mean(series: np.ndarray) -> float:
@@ -151,7 +144,7 @@ def inject(
     origins = reference.origins.numpy()
     profile = effect_profile(shape, horizon, duration)
 
-    rings = _rings(edge_index, reference.num_roads, hops)
+    rings = hop_rings(edge_index, reference.num_roads, hops)
 
     # Candidates are the reference's own usable (window, road) pairs.
     window_of, road_of = reference.usable.numpy().nonzero()
