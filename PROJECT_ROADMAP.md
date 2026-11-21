@@ -168,7 +168,7 @@ Estimate how reported crashes are associated with changes in traffic speeds **on
 **Purpose:** Establish whether neighboring-road results depend on real road structure.
 
 - [ ] Refine 0-/1-/2-hop effects over time with a common-event comparison; test upstream/downstream distinctions only if road direction is trustworthy.
-- [ ] Compare the **real graph**, removed/rewired edges, and the **matched-capacity temporal no-edge model** while holding samples and inputs fixed.
+- [ ] Compare the **real graph**, removed/rewired edges, and the **matched-capacity temporal no-edge model** while holding samples and inputs fixed. *(`--graph-ablation real|permuted|none` is implemented on both entry points, with `mlp`/`tgru` as the matched no-edge models; the comparison itself still needs a run.)*
 - [ ] Evaluate both untreated forecasting and semi-synthetic **effect-profile recovery** under these graph ablations.
 - [ ] Report separate hop-ring sample sizes; do not overinterpret apparent distance differences from different event populations.
 - [ ] If time permits, add **one** preregistered subgroup analysis (e.g., pre-crash congestion or crash severity), not a large exploratory grid.

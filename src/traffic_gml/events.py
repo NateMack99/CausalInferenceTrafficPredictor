@@ -404,6 +404,44 @@ def crash_cells(
     return (hit @ neighbourhood(edge_index, len(segment_ids), hops)).toarray()
 
 
+#: `--graph-ablation` choices. See `ablate_edges` for why these three.
+ABLATIONS = ("real", "permuted", "none")
+
+
+def ablate_edges(
+    edge_index: Tensor, mode: str = "real", num_roads: int | None = None, seed: int = 0
+) -> Tensor:
+    """The real road graph, a relabelled one, or none -- holding everything else fixed.
+
+    This is the controlled test behind "does road connectivity help": a graph
+    model can beat a non-graph one simply by averaging over *any* neighbours,
+    which smooths noise whether or not the neighbours are the real ones.
+
+    - `real` is the graph as built.
+    - `permuted` shuffles the node labels, so the topology, the edge count and
+      the degree *sequence* are all identical and only the correspondence
+      between graph structure and actual roads is destroyed. A model that still
+      wins here was never using the road network. This is the informative
+      ablation, and it is preferred over random rewiring, which would also
+      change the degree sequence and can emit self-loops and duplicate edges.
+    - `none` drops every edge. It changes how much smoothing is available as
+      well as the topology, so read it as a floor rather than as a clean
+      contrast; `mlp` and `tgru` are the matched-capacity no-edge models.
+
+    `num_roads` is required unless the mode is `real`.
+    """
+    if mode not in ABLATIONS:
+        raise ValueError(f"unknown graph ablation {mode!r}; choose from {ABLATIONS}")
+    if mode == "real":
+        return edge_index
+    if mode == "none":
+        return torch.zeros((2, 0), dtype=edge_index.dtype)
+    if num_roads is None:
+        raise ValueError("permuting node labels needs num_roads")
+    relabel = torch.from_numpy(np.random.default_rng(seed).permutation(num_roads))
+    return relabel.to(edge_index.dtype)[edge_index]
+
+
 def build_windows(
     tables: dict[str, pd.DataFrame],
     history: int = 12,

@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader
 
 from .data import LOCAL_TZ, load_tables, local_time
 from .evaluate import LOSSES, evaluate, masked_loss
-from .events import Windows, build_windows
+from .events import ABLATIONS, Windows, ablate_edges, build_windows
 from .models import BASELINES, CONVS, TEMPORAL, build_model, on_device, predict, resolve_device
 
 
@@ -140,6 +140,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     windows.add_argument("--stride", type=int, default=1, help="bins between window origins")
     windows.add_argument("--static-features", nargs="*", default=[])
     windows.add_argument(
+        "--graph-ablation",
+        default="real",
+        choices=list(ABLATIONS),
+        help="`permuted` keeps the topology and degree sequence but scrambles "
+        "which road is which; `none` drops every edge",
+    )
+    windows.add_argument(
         "--drop-zero-speed",
         action="store_true",
         help="treat an observed 0.0 mph as missing (the midpoint run kept zeros)",
@@ -180,6 +187,9 @@ def main(argv: list[str] | None = None) -> dict:
         static_features=args.static_features,
         drop_zero_speed=args.drop_zero_speed,
     )
+    edge_index = ablate_edges(edge_index, args.graph_ablation, sets["train"].num_roads, args.seed)
+    if args.graph_ablation != "real":
+        print(f"graph ablation: {args.graph_ablation} ({edge_index.size(1)} arcs)")
     seen = torch.isfinite(sets["train"].values)
     local = local_time(sets["train"].times)
     print(
@@ -225,7 +235,11 @@ def main(argv: list[str] | None = None) -> dict:
     record = {
         "code": code_version(),
         "data": data_version(tables, args.data),
-        "graph": {"edges": int(edge_index.size(1)), "exposure_hops": args.exposure_hops},
+        "graph": {
+            "edges": int(edge_index.size(1)),
+            "exposure_hops": args.exposure_hops,
+            "ablation": args.graph_ablation,
+        },
         "normalizer": {"mean": sets["train"].mean, "std": sets["train"].std},
         "splits": metrics,
         "history": history,

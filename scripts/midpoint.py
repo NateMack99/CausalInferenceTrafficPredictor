@@ -34,7 +34,14 @@ from traffic_gml.evaluate import (
     placebo_corrected,
     trajectory_figure,
 )
-from traffic_gml.events import build_windows, event_datasets, processed_tables, write_processed
+from traffic_gml.events import (
+    ABLATIONS,
+    ablate_edges,
+    build_windows,
+    event_datasets,
+    processed_tables,
+    write_processed,
+)
 from traffic_gml.models import BASELINES, CONVS, TEMPORAL, build_model
 from traffic_gml.train import DEFAULTS, code_version, data_version, fit, set_seed
 
@@ -135,6 +142,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument("--static-features", nargs="*", default=[])
     parser.add_argument(
+        "--graph-ablation",
+        default="real",
+        choices=list(ABLATIONS),
+        help="`permuted` scrambles which road is which at equal degree; `none` drops edges",
+    )
+    parser.add_argument(
         "--drop-zero-speed",
         action="store_true",
         help="treat an observed 0.0 mph as missing (the midpoint run kept zeros)",
@@ -182,6 +195,9 @@ def main(argv: list[str] | None = None) -> dict:
         drop_zero_speed=args.drop_zero_speed,
     )
     train = sets["train"]
+    edge_index = ablate_edges(edge_index, args.graph_ablation, train.num_roads, args.seed)
+    if args.graph_ablation != "real":
+        print(f"graph ablation: {args.graph_ablation} ({edge_index.size(1)} arcs)")
     print(
         f"{train.num_roads} roads, {edge_index.size(1):,} directed arcs, "
         + "  ".join(f"{name}={len(data):,} windows" for name, data in sets.items())

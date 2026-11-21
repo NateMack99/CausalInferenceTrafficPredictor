@@ -18,6 +18,7 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | Splits | chronological 70/15/15, gap `ceil((L+H)/stride)` windows | `events.build_windows` |
 | Seed | 42 | `--seed` |
 | Static features | `length_m degree betweenness` | `--static-features` |
+| Graph ablation | `real` | `--graph-ablation` |
 | Optimiser | AdamW, lr 1e-3, weight decay 1e-4 | `train.fit` |
 | Loss | masked L1 on normalised speeds | `--loss mae` |
 | Metrics | masked MAE and RMSE in mph, overall and per horizon step | `evaluate.evaluate` |
