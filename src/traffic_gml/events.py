@@ -107,6 +107,18 @@ def write_processed(tables: dict[str, pd.DataFrame], out: str | Path) -> Path:
     return out
 
 
+def hop_rings(edge_index: Tensor, num_roads: int, hops: int) -> list[list[np.ndarray]]:
+    """`rings[k][road]`: every road within `k` undirected hops, self included.
+
+    Inclusive, so an exclusive ring is `setdiff1d(rings[k][road],
+    rings[k-1][road])`. One definition shared by every module that reports a
+    hop, because a coverage table and an effect table built on different hop
+    definitions cannot be read against each other.
+    """
+    reach = [neighbourhood(edge_index, num_roads, k) for k in range(hops + 1)]
+    return [[matrix[road].indices for road in range(num_roads)] for matrix in reach]
+
+
 def event_datasets(
     reference: Windows,
     crashes: pd.DataFrame,

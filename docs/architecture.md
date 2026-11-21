@@ -11,7 +11,7 @@ Chicago crash + speed data → cleaned, aligned road observations → road graph
 - `events.py`: build accident, control, and crash-free training windows.
 - `models.py`: non-graph, GNN, and spatiotemporal forecasters.
 - `train.py`: optimization, checkpointing, and forecasting.
-- `causal.py`: counterfactual estimates and matched causal baselines.
+- `causal.py`: matched causal baselines -- difference-in-differences by hop ring and horizon, pre-trend placebos, covariate balance. Model-based counterfactual estimates live in `evaluate.py`.
 - `synthetic.py`: inject known disruptions into real crash-free windows.
 - `evaluate.py`: prediction metrics, treatment-effect metrics, and plots.
 - `roads.py`: provision raw inputs; download the street network; build the speed-observed
@@ -24,7 +24,7 @@ Create modules only when their PR requires them. Scripts call these functions; n
 
 ### Status
 
-Eleven of the twelve listed modules exist; `causal.py` is not written. `models.py` now also holds the PR #6 spatiotemporal pair (`stgcn`, `tgru`), which consumes the separate `history` dimension directly as planned. `data.py` retrieves, cleans and aligns; `graph.py` builds connectivity and the PyG `edge_index`; `events.py` joins the three streams (`processed_tables`) and builds crash-free training windows plus crash/control event windows; `models.py`, `train.py` and `evaluate.py` cover forecasting, optimisation and metrics. `evaluate.py` also holds the crash-effect estimate and the report figures.
+All twelve listed modules now exist. `causal.py` holds the matched event study (PR #7): a difference-in-differences on observed speeds that uses no forecaster at all, so it cannot leak, plus the pre-trend placebo, covariate balance and fixed-cohort reporting that go with it. `models.py` now also holds the PR #6 spatiotemporal pair (`stgcn`, `tgru`), which consumes the separate `history` dimension directly as planned. `data.py` retrieves, cleans and aligns; `graph.py` builds connectivity and the PyG `edge_index`; `events.py` joins the three streams (`processed_tables`) and builds crash-free training windows plus crash/control event windows; `models.py`, `train.py` and `evaluate.py` cover forecasting, optimisation and metrics. `evaluate.py` also holds the crash-effect estimate and the report figures.
 
 `mock.py` writes fixture tables so the models run without the portal. It is not `synthetic.py`, which injects known effects into *real* crash-free windows and is now written.
 

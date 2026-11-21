@@ -56,15 +56,38 @@ PR #3 plus `scripts/midpoint.py`:
   the data rather than the one requested. Events are separated by their whole
   lag-and-horizon span, because `x` carries the full `[history, roads]` grid and a nearby
   event's injection would otherwise arrive as this event's input.
+- A **matched event study** with no forecaster (`causal.py`, PR #7). Each window's own
+  pre-event mean is subtracted from its post-event speeds, and the matched control
+  window's same quantity is subtracted from that:
+
+  ```
+  did = (crash after − crash pre) − (matched control after − control pre)
+  ```
+
+  The first difference removes each road's speed level, the second removes what the slot
+  of the week does to every road alike. Nothing is fitted, so nothing can leak, which
+  makes it both the interpretable baseline the graph models must beat and a check on
+  them. Reported by exclusive hop ring and horizon step with **event-clustered**
+  intervals — cells inside one event are correlated and numerous, so `events` is the
+  sample size, not the road-time cell count. Shipped with it: a pre-trend placebo that
+  shifts every origin back and re-estimates, covariate balance as standardised
+  differences, a fixed-cohort estimate beside the available-case one, and a count of
+  cells where a *second* crash was reported on the same road inside the window.
+  Validated against the mock fixture's injected shock, where it recovers −8.0 / −3.6 / 0
+  mph at 0 / 1 / 2 hops and the `0.7^step` time decay.
 - A nested coverage funnel ending at the analysis sample, and per-hop neighbour
   observability for that sample (`evaluate.coverage_funnel`, `evaluate.neighbour_coverage`).
   The funnel's stricter rows sit *inside* the analysis sample: requiring every bin observed
   is much stricter than the estimator is, since a masked target contributes nothing to its
   bin, so reading the last row as the sample size understates it several-fold.
 
-Limits of what exists: effects are measured on the crash segment only, intervals are
-event-level and not clustered, and a crash is assumed to contaminate for `horizon` bins
-after it is reported — an assumption, not a measurement. No spatiotemporal result on real
+Limits of what exists: `evaluate.placebo_corrected`'s intervals are event-level but not
+clustered, and a crash is assumed to contaminate for `horizon` bins after it is reported
+— an assumption, not a measurement. The matched event study does report clustered
+intervals and does reach neighbouring rings, but it controls only for each road's own
+level, the slot of the week and road identity: not for weather, not for why this road had
+a crash in this hour, and it does not exclude a second crash arriving on a neighbour road
+— that is counted and reported instead. No spatiotemporal result on real
 data is recorded yet: `stgcn` and `tgru` are implemented and run reproducibly, but only on
 the mock fixture, which couples roads solely through the injected spillover that
 crash-free masking then removes, so no graph-versus-no-graph gap may be read off it.
@@ -85,8 +108,6 @@ outputs, not validated effects.
 
 Not yet written (see `PROJECT_ROADMAP.md` for the sprint each belongs to):
 
-- **Matched causal baseline** — matched difference-in-differences / event study as a
-  non-graph comparison, with pre-trend checks (`causal.py`, PR #7).
 - **Effect evaluation, robustness, ablations** — effect-recovery scoring, the checks
   listed under *Assumptions and limits*, and graph/no-graph, rewired-edge, history-length
   and horizon ablations (PRs #9–#12).
