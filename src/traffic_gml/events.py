@@ -119,6 +119,21 @@ def hop_rings(edge_index: Tensor, num_roads: int, hops: int) -> list[list[np.nda
     return [[matrix[road].indices for road in range(num_roads)] for matrix in reach]
 
 
+def fitted_cells(reference: Windows) -> np.ndarray:
+    """`[bins, roads]` cells a window set was fitted on.
+
+    The fitted cells are the *targets* of its windows, not their origins: a
+    window at origin `o` learns from `[o+1, o+horizon]`. Marking origins let a
+    control whose own targets had been fitted pass a held-out check, because
+    its origin fell in the gap band while its targets did not.
+    """
+    trained = np.zeros(tuple(reference.values.shape), dtype=bool)
+    origins, fitted = reference.origins.numpy(), reference.usable.numpy()
+    for step in range(1, reference.horizon + 1):
+        trained[origins + step] |= fitted
+    return trained
+
+
 def event_datasets(
     reference: Windows,
     crashes: pd.DataFrame,
@@ -166,22 +181,13 @@ def event_datasets(
     if len(segment_ids) != reference.num_roads:
         raise ValueError("segment_ids does not match the grid these windows were built on")
 
-    # Cells the model was fitted on are the *targets* of training windows, not
-    # their origins: a window at origin `o` learns from `[o+1, o+horizon]`.
-    # Marking origins let a control whose own targets had been fitted pass the
-    # check, because its origin fell in the gap band while its targets did not.
-    #
-    # `held_out=False` waives this. It exists for an estimator with no model,
-    # where there is nothing to be in-sample of. Keeping it on costs more than
-    # it sounds: on the frozen data it pushed every control into the weeks
-    # *after* its event (mean +3.3 weeks, 87.8% later) and cut supply to 1.9
-    # per crash, because the only cells left were outside the training span
-    # entirely. Never pass False for a model-based estimate.
-    trained = np.zeros(values.shape, dtype=bool)
-    if held_out:
-        origins, fitted = reference.origins.numpy(), reference.usable.numpy()
-        for step in range(1, horizon + 1):
-            trained[origins + step] |= fitted
+    # `held_out=False` waives the fitted-cell rule. It exists for an estimator
+    # with no model, where there is nothing to be in-sample of. Keeping it on
+    # costs more than it sounds: on the frozen data it pushed every control
+    # into the weeks *after* its event (mean +3.3 weeks, 87.8% later) and cut
+    # supply to 1.9 per crash, because the only admissible cells sat outside
+    # the training span entirely. Never pass False for a model-based estimate.
+    trained = fitted_cells(reference) if held_out else np.zeros(values.shape, dtype=bool)
 
     bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)

@@ -36,8 +36,7 @@ import torch
 from torch import Tensor
 
 from .data import BIN_MINUTES
-from .events import Windows
-from .graph import neighbourhood
+from .events import WEEK_SLOTS, Windows, hop_rings
 
 #: Time profiles. Both are driven by one `duration`, in bins.
 SHAPES = ("decay", "plateau")
@@ -80,12 +79,6 @@ def effect_profile(shape: str, horizon: int, duration: float) -> np.ndarray:
     if shape == "plateau":
         return (step < duration).astype("float64")
     raise ValueError(f"unknown shape {shape!r}; choose from {SHAPES}")
-
-
-def _rings(edge_index: Tensor, num_roads: int, hops: int) -> list[list[np.ndarray]]:
-    """`rings[k][road]`: every road within `k` undirected hops, self included."""
-    reach = [neighbourhood(edge_index, num_roads, k) for k in range(hops + 1)]
-    return [[matrix[road].indices for road in range(num_roads)] for matrix in reach]
 
 
 def _pre_mean(series: np.ndarray) -> float:
@@ -139,10 +132,19 @@ def inject(
     values = untreated.copy()
     history, horizon = reference.history, reference.horizon
     observed = np.isfinite(untreated)
+    # A ring cell must be crash-free as well as observed. The event road is
+    # crash-free because it came from `usable`, but a ring road is not checked
+    # by anything: contamination spreads `exposure_hops` from a real crash and
+    # a ring sits up to `hops` from the event, so a crash three or four hops
+    # out dirties the ring while leaving the event road clean. Injecting there
+    # would stack a fake slowdown on a real one and label only the fake part,
+    # and the control arm already demands `clean`, so the two arms would be
+    # held to different bars -- biasing the very hop rows this exists to score.
+    clean = reference.clean.numpy()
     origins = reference.origins.numpy()
     profile = effect_profile(shape, horizon, duration)
 
-    rings = _rings(edge_index, reference.num_roads, hops)
+    rings = hop_rings(edge_index, reference.num_roads, hops)
 
     # Candidates are the reference's own usable (window, road) pairs.
     window_of, road_of = reference.usable.numpy().nonzero()
@@ -198,7 +200,7 @@ def inject(
             wanted = size * hop_decay**hop * profile
             for step, want in enumerate(wanted):
                 bin_ = origin + 1 + step
-                seen = ring[observed[bin_, ring]]
+                seen = ring[observed[bin_, ring] & clean[bin_, ring]]
                 if not len(seen) or want <= 0:
                     continue
                 before = untreated[bin_, seen]
@@ -264,9 +266,14 @@ def treated_windows(reference: Windows, disruptions: Disruptions) -> Windows:
     """Event windows over the treated grid, scoring every road a disruption reached.
 
     The returned set shares `reference`'s normalisation statistics and clock
-    features, so a model trained on `reference` can be applied directly. Only
-    cells that carry a known effect are unmasked, which is what makes the
-    per-hop recovery in PR #9 readable.
+    features, so a model trained on `reference` can be applied directly.
+
+    `usable` is per-road and broadcasts over the horizon, so a road that
+    carries a known effect at one step is unmasked at every step. That can
+    yield rows with no truth label -- a step where the cell was unobserved or
+    crash-contaminated. `evaluate.effect_recovery` inner-joins on
+    (event_id, road, minutes), so those rows are dropped before anything is
+    scored; do not aggregate this frame without joining it to `truth` first.
     """
     events = disruptions.events
     usable = np.zeros((len(events), reference.num_roads), dtype=bool)
@@ -277,6 +284,97 @@ def treated_windows(reference: Windows, disruptions: Disruptions) -> Windows:
     data = reference.at(events["origin"].to_numpy(), usable)
     data.values = torch.from_numpy(disruptions.values)
     return data
+
+
+def matched_controls(
+    reference: Windows,
+    disruptions: Disruptions,
+    fitted: np.ndarray,
+    controls: int = 5,
+    seed: int = 0,
+) -> tuple[pd.DataFrame, Windows]:
+    """Untreated control windows for every road a disruption reached.
+
+    Held to the same rule as a real crash's control in `event_datasets`: the
+    same road at the same slot of the week in another week, crash-free across
+    its whole span, and never a cell in `fitted`.
+
+    `fitted` is whatever the caller passes, normally
+    `events.fitted_cells(train_set)` -- which covers cells a gradient step
+    touched and **not** the validation period that early stopping selected on.
+    A control one or more whole weeks from a held-out event frequently lands in
+    validation, so this is the usual case rather than an edge one. Pass
+    `fitted_cells(train) | fitted_cells(val)` to exclude those too, and expect
+    control supply to fall sharply when you do.
+
+    These windows read the **untreated** grid, so each is a genuine
+    no-disruption window, and the correction they supply is the forecaster's
+    own bias measured where nothing happened — the same quantity
+    `evaluate.placebo_corrected` subtracts for a real crash. Unlike
+    `untreated_windows`, a control does **not** share the event's inputs, so
+    the prediction does not cancel and the comparison is not an identity.
+
+    **The held-out span has to exceed a week.** A control sits at the same slot
+    of the week, so its candidates are 1,008 bins away; if every sibling bin
+    falls in the training split it is fitted and rejected, and the road gets no
+    control at all. Injecting into a test split shorter than that leaves this
+    function with nothing to draw, which is a property of the split, not a bug.
+
+    Returns one row per (event, road, control origin), and the window set.
+    """
+    history, horizon = reference.history, reference.horizon
+    values = disruptions.untreated
+    clean = reference.clean.numpy()
+    slot = reference.slot.numpy()
+    n_bins = values.shape[0]
+    rng = np.random.default_rng(seed)
+
+    # One pass over the slot grid instead of one per (event, road).
+    same_slot = {int(s): np.flatnonzero(slot == s) for s in np.unique(slot)}
+    origin_of = dict(zip(disruptions.events["event_id"], disruptions.events["origin"], strict=True))
+
+    pairs: list[dict] = []
+    wanted = disruptions.truth[["event_id", "road"]].drop_duplicates()
+    for event_id, road in zip(wanted["event_id"], wanted["road"], strict=True):
+        origin, road = int(origin_of[event_id]), int(road)
+        eligible = [
+            int(t)
+            for t in same_slot[int(slot[origin])]
+            if abs(t - origin) >= history + horizon
+            and t - history + 1 >= 0
+            and t + horizon < n_bins
+            and not fitted[t + 1 : t + 1 + horizon, road].any()
+            and clean[t - history + 1 : t + horizon + 1, road].all()
+            and np.isfinite(values[t + 1 : t + 1 + horizon, road]).any()
+        ]
+        if not eligible:
+            continue
+        chosen = rng.choice(eligible, size=min(controls, len(eligible)), replace=False)
+        pairs += [
+            {"event_id": event_id, "road": road, "origin": int(t)} for t in np.atleast_1d(chosen)
+        ]
+
+    table = pd.DataFrame(pairs)
+    if table.empty:
+        raise ValueError(
+            "no disruption road has an eligible untreated control window. A control "
+            "sits one or more whole weeks from its event, so if the held-out split is "
+            f"shorter than a week every sibling bin is a fitted training cell. This "
+            f"split spans {n_bins:,} bins with {WEEK_SLOTS:,} per week; widen the "
+            "speed window, or inject into a longer held-out period."
+        )
+
+    # One window per distinct origin, unmasking every road wanted there. Roads
+    # of one event share candidate bins, so a row per (origin, road) rebuilt
+    # the same origin about seven times and every model paid for it again. The
+    # mask does not reach the prediction -- `x_mask` is built from `clean` and
+    # `isfinite`, never from `usable` -- so the rows this yields are identical.
+    origins = np.unique(table["origin"].to_numpy())
+    only = np.zeros((len(origins), reference.num_roads), dtype=bool)
+    only[np.searchsorted(origins, table["origin"].to_numpy()), table["road"].to_numpy()] = True
+    windows = reference.at(origins, only)
+    windows.values = torch.from_numpy(values)
+    return table, windows
 
 
 def untreated_windows(reference: Windows, disruptions: Disruptions) -> Windows:

@@ -30,12 +30,23 @@ uv run python scripts/midpoint.py --speeds data/parquet/chicago-speeds \
     --window 2025-03-01 2025-05-01 --static-features length_m degree betweenness
 ```
 
-Point `--data` at `data/processed` once the collection and graph steps have run. `--model` takes `persistence`, `historical_mean`, `mlp`, `gcn` or `sage`; see `--help` for the window, model and optimisation flags. Each run records its arguments and metrics under `outputs/`. `scripts/midpoint.py` runs the whole pipeline: it joins the speed, crash and road-graph outputs into those tables, trains every model on identical splits, estimates crash effects against matched accident-free controls, and writes the figures and `results.csv` under `outputs/midpoint/`.
+Point `--data` at `data/processed` once the collection and graph steps have run. `--model` takes `persistence`, `historical_mean`, `mlp`, `gcn`, `sage`, `tgru` or `stgcn`; see `--help` for the window, model and optimisation flags. Read the graph effect off `gcn` against `mlp`, and `stgcn` against `tgru`: each pair differs only in having edges, at matched parameter counts. Each run records its arguments and metrics under `outputs/`. `scripts/midpoint.py` runs the whole pipeline: it joins the speed, crash and road-graph outputs into those tables, trains every model on identical splits, estimates crash effects against matched accident-free controls, and writes the figures and `results.csv` under `outputs/midpoint/`.
+
+Two further entry points need no real data to be useful:
+
+```bash
+uv run python scripts/benchmark.py --data data/mock --out outputs/benchmark
+```
+
+`benchmark.py` injects disruptions of known size into held-out crash-free windows and
+scores how well each forecaster recovers them, by hop ring and horizon step, reporting
+forecast error separately. Recovering a known effect is the evidence the estimator works;
+a low forecast MAE is not.
 
 ## Layout
 
 - `src/traffic_gml/` — reusable data, graph, model, and evaluation code
-- `scripts/` — command-line entry points for collection, the road graph, and the midpoint run
+- `scripts/` — command-line entry points for collection, the road graph, the midpoint run, and the semi-synthetic known-effect benchmark (`benchmark.py`)
 - `tests/` — small, offline tests
 - `docs/` — architecture, data contracts, and methodology
 - `data/`, `outputs/` — local datasets and generated results; not committed

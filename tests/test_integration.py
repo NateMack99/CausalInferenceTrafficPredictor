@@ -16,7 +16,13 @@ import pytest
 import torch
 
 from traffic_gml.data import FREQ
-from traffic_gml.evaluate import coverage_funnel, effects, grid_coverage, neighbour_coverage
+from traffic_gml.evaluate import (
+    coverage_funnel,
+    effects,
+    grid_coverage,
+    monthly_coverage,
+    neighbour_coverage,
+)
 from traffic_gml.events import build_windows, crash_index, event_datasets, processed_tables
 from traffic_gml.mock import make_mock
 from traffic_gml.models import build_model
@@ -245,3 +251,32 @@ def test_neighbour_coverage_bars_get_stricter_not_looser(events):
             >= row.full_trajectory
             >= 0
         )
+
+
+def test_monthly_coverage_accounts_for_every_bin_and_event(events):
+    """PR #4 wants coverage, matches and control supply by month before a longer
+    run. The table has to account for the whole grid and the whole event
+    sample, or a month that cannot supply controls disappears instead of
+    showing up as the constraint it is."""
+    tables, sets, _, table, controls, _, _ = events
+    train = sets["train"]
+    monthly = monthly_coverage(train, tables["crashes"], table, controls)
+
+    assert len(monthly) > 1, "the mock spans more than one month"
+    assert monthly["bins"].sum() == len(train.times)
+    assert monthly["analysis_events"].sum() == len(table)
+    # Only crashes inside the grid's own span are counted.
+    span = pd.to_datetime(tables["crashes"]["crash_time"])
+    inside = span.between(train.times[0], train.times[-1])
+    assert monthly["matched_crashes"].sum() == int(inside.sum())
+
+    assert (monthly["observed_pct"] >= 0).all() and (monthly["observed_pct"] <= 100).all()
+    assert (monthly["roads_observed"] <= train.num_roads).all()
+    # Exact, not approximate: a tolerance here would hide a lost or double-counted
+    # control, and control supply is the number this table exists to report.
+    supplied = (monthly["controls_per_event"].fillna(0) * monthly["analysis_events"]).round()
+    assert int(supplied.sum()) == len(controls)
+
+    # A crash id that does not line up must raise, not be reported as zero supply.
+    with pytest.raises(ValueError, match="do not line up"):
+        monthly_coverage(train, tables["crashes"], table, controls.assign(crash_record_id="nope"))
