@@ -19,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402  -- after the Agg backend is set
 from torch.utils.data import DataLoader
 
-from .data import BIN_MINUTES
+from .data import BIN_MINUTES, local_time
 from .events import Windows, crash_index
 from .graph import neighbourhood
 from .models import on_device, predict, resolve_device
@@ -434,6 +434,100 @@ def neighbour_coverage(
             }
         )
     return pd.DataFrame(rows)
+
+
+def monthly_coverage(
+    data: Windows,
+    crashes: pd.DataFrame,
+    events: pd.DataFrame,
+    controls: pd.DataFrame,
+) -> pd.DataFrame:
+    """Coverage, crash matches and control supply, month by month.
+
+    PR #4 asks for this *before* retraining on a longer period, and the reason
+    is that a study period is not uniformly usable. One aggregate coverage
+    figure hides a month where the feed went dark, where few crashes landed on
+    the monitored network, or where control supply collapsed -- and control
+    supply is the binding constraint on every matched estimate here, so a
+    month that cannot supply controls contributes crashes but no effects.
+
+    `controls_per_event` is the column to read for that: control windows over
+    analysis events for crashes in that month, not a coverage figure.
+    `roads_observed` counts roads seen at least once in the month, which is not
+    the same as roads seen simultaneously. Both crash columns are keyed on the
+    crash time, so a row's crashes and its events are the same population, and
+    crashes outside the speed grid's own span are excluded -- `processed_tables`
+    deliberately keeps crashes from before the window so their wake can mask
+    the first bins, and counting those would inflate the first month against
+    its own event count. Rows are local calendar months, matching `docs/data.md`.
+    """
+    observed = np.isfinite(data.values.numpy())
+    month = pd.PeriodIndex(local_time(data.times), freq="M")
+
+    def by_month(times) -> pd.Series:
+        """Counts per local calendar month, clipped to the grid's own span."""
+        stamps = pd.DatetimeIndex(pd.to_datetime(times))
+        inside = stamps[(stamps >= data.times[0]) & (stamps <= data.times[-1])]
+        if not len(inside):
+            return pd.Series(dtype="int64")
+        return pd.PeriodIndex(local_time(inside), freq="M").value_counts()
+
+    rows = []
+    for period in month.unique():
+        mask = month == period
+        seen = observed[mask]
+        rows.append(
+            {
+                "month": period,
+                "bins": int(mask.sum()),
+                "observed_pct": round(100 * float(seen.mean()), 1),
+                "roads_observed": int(seen.any(axis=0).sum()),
+            }
+        )
+    table = pd.DataFrame(rows).set_index("month").sort_index()
+
+    # Every event in `events` has at least one control by construction:
+    # `event_datasets` drops a crash with no usable control. So a missing count
+    # means the two tables do not line up, and reporting it as zero control
+    # supply -- the one number this table exists for -- would be worse than
+    # raising. A shared or absent crash id is the usual cause.
+    per_event = controls.groupby("crash_record_id").size()
+    counts = events["crash_record_id"].map(per_event)
+    if counts.isna().any():
+        missing = int(counts.isna().sum())
+        raise ValueError(
+            f"{missing} of {len(events)} events have no row in the control table; "
+            "the crash ids do not line up, so control supply cannot be reported"
+        )
+    supply = (
+        pd.DataFrame(
+            {
+                "month": pd.PeriodIndex(
+                    local_time(pd.DatetimeIndex(events["crash_time"])), freq="M"
+                ),
+                "controls": counts.to_numpy(),
+            }
+        )
+        .groupby("month", observed=True)
+        .agg(analysis_events=("controls", "size"), total_controls=("controls", "sum"))
+    )
+
+    table = table.join(supply, how="left")
+    table["matched_crashes"] = by_month(crashes["crash_time"]).reindex(table.index).fillna(0)
+    table["analysis_events"] = table["analysis_events"].fillna(0)
+    table["controls_per_event"] = (
+        table["total_controls"] / table["analysis_events"].replace(0, np.nan)
+    ).round(2)
+    table = table.astype({"matched_crashes": "int64", "analysis_events": "int64"})
+    order = [
+        "bins",
+        "observed_pct",
+        "roads_observed",
+        "matched_crashes",
+        "analysis_events",
+        "controls_per_event",
+    ]
+    return table[order].reset_index().astype({"month": "string"})
 
 
 def grid_coverage(data: Windows) -> float:
