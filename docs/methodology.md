@@ -56,6 +56,15 @@ PR #3 plus `scripts/midpoint.py`:
   the data rather than the one requested. Events are separated by their whole
   lag-and-horizon span, because `x` carries the full `[history, roads]` grid and a nearby
   event's injection would otherwise arrive as this event's input.
+- **Known-effect scoring** (`evaluate.effect_recovery`, `scripts/benchmark.py`, PR #9).
+  Every forecaster is run through the estimator the study has for a real crash — the
+  residual against the no-disruption forecast, corrected by matched untreated controls
+  drawn by the same rule `event_datasets` uses — and scored against the injected truth
+  pooled, per hop ring and per horizon step. The uncorrected residual is reported beside
+  it **on the same cells**, because its error is the untreated forecast error and it is
+  a diagnostic, not causal validation. Forecast error goes to its own table. Cells whose
+  matched control is missing are dropped from both arms and the loss is recorded, since
+  that loss is hop-dependent.
 - A nested coverage funnel ending at the analysis sample, and per-hop neighbour
   observability for that sample (`evaluate.coverage_funnel`, `evaluate.neighbour_coverage`).
   The funnel's stricter rows sit *inside* the analysis sample: requiring every bin observed
@@ -87,14 +96,14 @@ Not yet written (see `PROJECT_ROADMAP.md` for the sprint each belongs to):
 
 - **Matched causal baseline** — matched difference-in-differences / event study as a
   non-graph comparison, with pre-trend checks (`causal.py`, PR #7).
-- **Effect evaluation, robustness, ablations** — effect-recovery scoring, the checks
-  listed under *Assumptions and limits*, and graph/no-graph, rewired-edge, history-length
-  and horizon ablations (PRs #9–#12).
+- **Robustness and ablations** — the checks listed under *Assumptions and limits*, plus
+  graph/no-graph, rewired-edge, history-length and horizon ablations (PRs #10–#12).
 
 ## Semi-synthetic validation (core)
 
-Steps 1–4 are implemented in `synthetic.py` (PR #8). Step 5, the scoring, is PR #9. No
-benchmark result on real data is recorded yet.
+All five steps are implemented: injection in `synthetic.py` (PR #8), scoring in
+`evaluate.effect_recovery` and `scripts/benchmark.py` (PR #9). No benchmark result on
+real data is recorded yet.
 
 1. Take **real accident-free windows**, held out from training.
 2. Inject **known** slowdowns on a chosen road and propagate them across connected roads,

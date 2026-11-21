@@ -23,6 +23,11 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | Metrics | masked MAE and RMSE in mph, overall and per horizon step | `evaluate.evaluate` |
 | Controls per crash | 5 requested (about 1.9 available) | `--controls` |
 | Effect model | `gcn` | `--effect-model` |
+| Benchmark events | 200 | `--events` |
+| Benchmark controls | 5 per event road | `--controls` |
+| Injected rings | 2, decaying 0.45 per hop | `--hops`, `--hop-decay` |
+| Injected time shape | `decay`, half-life 2 bins | `--shape`, `--duration` |
+| Event placement | `uniform` | `--placement` |
 
 Conventions that are not flags:
 
@@ -36,6 +41,11 @@ Conventions that are not flags:
   crash-free across its whole span, and never a window the model trained on.
 - **Forecast error and effect error are reported separately.** Lower MAE is not
   evidence of lower causal bias.
+- **A benchmark control may sit in the validation period.** `fitted_cells(train)` covers
+  cells a gradient step touched, not the cells early stopping selected on, and a control
+  one or more whole weeks from a held-out event often lands in validation. Pass
+  `fitted_cells(train) | fitted_cells(val)` to exclude them, and expect control supply to
+  fall sharply.
 
 ## Exclusion rules
 

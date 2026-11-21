@@ -238,6 +238,75 @@ def placebo_corrected(event: pd.DataFrame, control: pd.DataFrame) -> pd.DataFram
     return pd.DataFrame(rows)
 
 
+def control_corrected(
+    event: pd.DataFrame, control: pd.DataFrame, pairs: pd.DataFrame
+) -> pd.DataFrame:
+    """Per-cell effect with the forecaster's own bias subtracted.
+
+    The same correction `placebo_corrected` applies in aggregate, kept per
+    cell so known-effect recovery can be scored by hop and horizon. `event`
+    carries `event_id`, `road`, `minutes`, `effect`; `control` is what
+    `effects` returns for the control windows; `pairs` maps each
+    (event, road) to its control origins.
+
+    A cell with no matched control is dropped rather than left uncorrected:
+    mixing corrected and raw residuals in one average would report neither.
+    """
+    bias = (
+        pairs.merge(control, on=["origin", "road"])
+        .groupby(["event_id", "road", "minutes"], as_index=False)["effect"]
+        .mean()
+        .rename(columns={"effect": "bias"})
+    )
+    merged = event.merge(bias, on=["event_id", "road", "minutes"])
+    merged["estimated"] = merged["effect"] - merged["bias"]
+    return merged
+
+
+def _recovery_row(frame: pd.DataFrame, group: str, value) -> dict:
+    error = frame["estimated"] - frame["true_effect"]
+    return {
+        "group": group,
+        "value": value,
+        "n": len(frame),
+        "events": frame["event_id"].nunique(),
+        "true_mph": round(float(frame["true_effect"].mean()), 3),
+        "estimated_mph": round(float(frame["estimated"].mean()), 3),
+        "bias_mph": round(float(error.mean()), 3),
+        "effect_mae": round(float(error.abs().mean()), 3),
+        "effect_rmse": round(float(np.sqrt((error**2).mean())), 3),
+    }
+
+
+def effect_recovery(estimate: pd.DataFrame, truth: pd.DataFrame) -> pd.DataFrame:
+    """Known-effect recovery against injected ground truth.
+
+    `estimate` needs `event_id`, `road`, `minutes` and `estimated`; `truth` is
+    `synthetic.Disruptions.truth`. Reported pooled, per hop ring and per
+    horizon step, because a pooled number hides whether the spatial and time
+    profiles were recovered at all — which is the question the benchmark
+    exists to answer.
+
+    This is **effect** error and is not forecast error. `AGENTS.md` requires
+    the two to be reported separately, and a model can win one while losing
+    the other. See `docs/methodology.md` for the arm that must *not* be
+    differenced here.
+    """
+    joined = estimate.merge(
+        truth[["event_id", "road", "minutes", "hop", "true_effect"]],
+        on=["event_id", "road", "minutes"],
+    )
+    if joined.empty:
+        raise ValueError(
+            "no estimated cell matches a truth cell; check that event_id, road and "
+            "minutes line up between the estimate and the injected truth"
+        )
+    rows = [_recovery_row(joined, "pooled", "all")]
+    rows += [_recovery_row(g, "hop", int(k)) for k, g in joined.groupby("hop")]
+    rows += [_recovery_row(g, "minutes", int(k)) for k, g in joined.groupby("minutes")]
+    return pd.DataFrame(rows)
+
+
 def coverage_funnel(
     audit: pd.DataFrame,
     data: Windows,
