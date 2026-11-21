@@ -271,7 +271,12 @@ def test_monthly_coverage_accounts_for_every_bin_and_event(events):
     assert monthly["matched_crashes"].sum() == int(inside.sum())
 
     assert (monthly["observed_pct"] >= 0).all() and (monthly["observed_pct"] <= 100).all()
-    assert (monthly["roads_seen"] <= train.num_roads).all()
-    # Control supply is controls over events, so it cannot exceed what was drawn.
-    supplied = monthly["controls_per_event"].dropna() * monthly["analysis_events"]
-    assert supplied.sum() == pytest.approx(len(controls), rel=0.01)
+    assert (monthly["roads_observed"] <= train.num_roads).all()
+    # Exact, not approximate: a tolerance here would hide a lost or double-counted
+    # control, and control supply is the number this table exists to report.
+    supplied = (monthly["controls_per_event"].fillna(0) * monthly["analysis_events"]).round()
+    assert int(supplied.sum()) == len(controls)
+
+    # A crash id that does not line up must raise, not be reported as zero supply.
+    with pytest.raises(ValueError, match="do not line up"):
+        monthly_coverage(train, tables["crashes"], table, controls.assign(crash_record_id="nope"))
