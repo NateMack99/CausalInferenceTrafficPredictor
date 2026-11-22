@@ -44,7 +44,7 @@ from traffic_gml.events import (
     processed_tables,
     write_processed,
 )
-from traffic_gml.models import BASELINES, CONVS, TEMPORAL, build_model
+from traffic_gml.models import BASELINES, CONVS, TEMPORAL, build_model, resolve_device
 from traffic_gml.train import DEFAULTS, code_version, data_version, fit, set_seed
 
 MODELS = (*BASELINES, *CONVS, *TEMPORAL)
@@ -169,6 +169,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     parser.add_argument("--out", type=Path, default=Path("outputs/midpoint"))
     parser.add_argument("--processed", type=Path, default=Path("data/processed"))
+    parser.add_argument(
+        "--overwrite-processed",
+        action="store_true",
+        help="allow the join to replace existing tables in --processed",
+    )
     parser.add_argument("--history", type=int, default=12)
     parser.add_argument("--horizon", type=int, default=6)
     parser.add_argument("--exposure-hops", type=int, default=2)
@@ -203,11 +208,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if not args.data and not (args.speeds and args.graph and args.crashes):
         parser.error("pass --data, or all of --speeds, --graph and --crashes")
+    if args.data and (args.speeds or args.graph or args.crashes):
+        # Accepting both silently ignored the pipeline paths while still reading
+        # --crashes for the funnel, which built it from a different population.
+        parser.error("--data replaces --speeds/--graph/--crashes; pass one or the other")
+    if args.data and args.window:
+        # --window only applies to the join, but NOTES.md printed it as the run's
+        # span either way, so the one file written for humans named a period that
+        # was never applied.
+        parser.error("--window applies to the pipeline path only, not to --data")
+    for path in (args.data, args.speeds, args.graph, args.crashes):
+        if path and not path.exists():
+            parser.error(f"{path} does not exist")
     return args
 
 
 def main(argv: list[str] | None = None) -> dict:
     args = parse_args(argv)
+    # A rerun into a used directory leaves last run's CSVs beside this run's
+    # JSON, and nothing marks them stale. It cost me a wrong measurement once.
+    if (args.out / "summary.json").exists():
+        raise SystemExit(f"{args.out} already holds a run; use a new --out directory")
     set_seed(args.seed)
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -216,6 +237,18 @@ def main(argv: list[str] | None = None) -> dict:
         print(f"read joined tables from {args.data}")
     else:
         window = tuple(args.window) if args.window else None
+        # Checked before the join, not after: on the expanded window that join
+        # reads a year of speeds, so a requeued run used to sit through all of
+        # it only to abort. The default --processed is the frozen March-April
+        # set every recorded result rests on.
+        existing = sorted(args.processed.glob("*.parquet"))
+        if existing and not args.overwrite_processed:
+            raise SystemExit(
+                f"{args.processed} already holds {len(existing)} tables. Joining a "
+                "different window would replace them and silently change what every "
+                "later --data run reads. Pass --processed <new dir> for a new window, "
+                "or --overwrite-processed to replace these (the usual answer on a retry)."
+            )
         tables = processed_tables(args.speeds, args.graph, args.crashes, window)
         write_processed(tables, args.processed)
         print(f"joined the pipeline into {args.processed}")
@@ -275,6 +308,22 @@ def main(argv: list[str] | None = None) -> dict:
         row = metrics[name]
         print(f"  {name:16s} test MAE {row['mae']:6.3f}  RMSE {row['rmse']:6.3f}")
 
+    # Written here, not at the end: everything below is cheap but can raise, and
+    # an exception after the training loop used to discard the whole GPU budget
+    # along with the one table that needed it.
+    results = pd.DataFrame(
+        [
+            {
+                "model": name,
+                "mae": values["mae"],
+                "rmse": values["rmse"],
+                **{f"mae_{k}min": v for k, v in values["mae_by_minutes"].items()},
+            }
+            for name, values in metrics.items()
+        ]
+    ).sort_values("mae")
+    results.to_csv(args.out / "results.csv", index=False)
+
     segment_ids = segment_ids_of(tables)
     table, control_table, event, control = event_datasets(
         train, tables["crashes"], segment_ids, controls=args.controls, seed=args.seed
@@ -330,18 +379,6 @@ def main(argv: list[str] | None = None) -> dict:
         )
     estimate.to_csv(args.out / "effect_estimate.csv", index=False)
 
-    results = pd.DataFrame(
-        [
-            {
-                "model": name,
-                "mae": values["mae"],
-                "rmse": values["rmse"],
-                **{f"mae_{k}min": v for k, v in values["mae_by_minutes"].items()},
-            }
-            for name, values in metrics.items()
-        ]
-    ).sort_values("mae")
-    results.to_csv(args.out / "results.csv", index=False)
     table.to_csv(args.out / "events.csv", index=False)
     event_effects.assign(window="crash").to_csv(args.out / "effects_crash.csv", index=False)
     control_effects.assign(window="control").to_csv(args.out / "effects_control.csv", index=False)
@@ -355,6 +392,7 @@ def main(argv: list[str] | None = None) -> dict:
         json.dumps(
             {
                 "args": {k: str(v) for k, v in vars(args).items()},
+                "device": str(resolve_device(args.device)),
                 "code": code_version(),
                 "data": data_version(tables, args.data or args.speeds),
                 "roads": train.num_roads,

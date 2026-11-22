@@ -201,7 +201,11 @@ def inject(
             for step, want in enumerate(wanted):
                 bin_ = origin + 1 + step
                 seen = ring[observed[bin_, ring] & clean[bin_, ring]]
-                if not len(seen) or want <= 0:
+                # `want == 0` is labelled, not skipped: the write is a no-op so
+                # the grid is unchanged, but the truth row records an honest
+                # zero. Skipping it left the `plateau` shape's off-period
+                # unscored, so overshoot after the plateau was never penalised.
+                if not len(seen) or want < 0:
                     continue
                 before = untreated[bin_, seen]
                 after = np.maximum(before - want, FLOOR)

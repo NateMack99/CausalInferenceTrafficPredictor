@@ -7,6 +7,8 @@ models never see because crash windows are masked out of training.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -330,11 +332,24 @@ def test_matched_controls_sit_closer_in_pre_event_level_and_trend(events):
 
     assert mean_gap(match=True) < mean_gap(match=False)
 
-    # Matching is deterministic, so it does not move with the seed; the random
-    # draw does. That is what keeps a matched run reproducible.
-    first, _, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=1)
-    second, _, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=2)
-    pd.testing.assert_frame_equal(first, second)
+    # Matching is deterministic, so the *controls* do not move with the seed,
+    # while a random draw's do. Comparing the event tables proved nothing: those
+    # never depend on the seed either way.
+    _, matched_a, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=1)
+    _, matched_b, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=2)
+    pd.testing.assert_frame_equal(matched_a, matched_b)
+    _, drawn_a, _, _ = event_datasets(
+        train, tables["crashes"], ids, controls=3, seed=1, match_pre_event=False
+    )
+    _, drawn_b, _, _ = event_datasets(
+        train, tables["crashes"], ids, controls=3, seed=2, match_pre_event=False
+    )
+    assert not drawn_a.equals(drawn_b), "a random draw must move with the seed"
+
+    with pytest.raises(ValueError, match="at least 1"):
+        event_datasets(train, tables["crashes"], ids, controls=0)
+    with pytest.raises(ValueError, match="no effect without"):
+        event_datasets(train, tables["crashes"], ids, match_hops=2, match_pre_event=False)
 
 
 def test_neighbourhood_smoothing_averages_only_observed_roads():
@@ -364,3 +379,38 @@ def test_matching_hops_needs_a_graph(events):
     )
     assert len(narrow) == len(wide), "matching changes the draw, never the eligible sample"
     assert len(w_controls)
+
+
+def test_midpoint_refuses_to_replace_existing_processed_tables(pipeline, tmp_path):
+    """The join writes to `--processed`, whose default holds the frozen tables
+    every recorded result rests on. Replacing them silently would change what
+    later `--data` runs read while the provenance still named the old window."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "midpoint", Path(__file__).resolve().parents[1] / "scripts" / "midpoint.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    speeds_dir, graphml, crash_csv = pipeline
+    processed = tmp_path / "processed"
+    processed.mkdir()
+    (processed / "speeds.parquet").write_bytes(b"")
+    argv = [
+        "--speeds",
+        str(speeds_dir),
+        "--graph",
+        str(graphml),
+        "--crashes",
+        str(crash_csv),
+        "--processed",
+        str(processed),
+        "--out",
+        str(tmp_path / "out"),
+    ]
+    with pytest.raises(SystemExit, match="already holds"):
+        module.main(argv)
+
+    # An empty directory is fine, and so is saying you mean it.
+    assert module.parse_args([*argv, "--overwrite-processed"]).overwrite_processed

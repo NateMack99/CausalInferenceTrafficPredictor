@@ -145,8 +145,13 @@ def test_plateau_holds_full_strength_then_stops(built):
     """The other half of the shape family: nothing is injected past `duration`."""
     sets, edge_index = built
     disruptions = inject(sets["test"], edge_index, events=10, shape="plateau", duration=2, seed=5)
-    minutes = set(disruptions.truth.loc[disruptions.truth.hop == 0, "minutes"])
-    assert minutes == {BIN_MINUTES, 2 * BIN_MINUTES}  # the third bin gets nothing
+    # The off-period is labelled zero, not dropped. Dropping it meant a model
+    # that kept predicting a slowdown after the plateau ended was never scored
+    # on the half of the profile this shape exists to test.
+    direct = disruptions.truth.loc[disruptions.truth.hop == 0]
+    assert set(direct["minutes"]) == {BIN_MINUTES, 2 * BIN_MINUTES, 3 * BIN_MINUTES}
+    assert (direct.loc[direct.minutes == 3 * BIN_MINUTES, "true_effect"] == 0.0).all()
+    assert (direct.loc[direct.minutes == BIN_MINUTES, "true_effect"] < 0).all()
 
     assert list(effect_profile("plateau", 3, 2)) == [1.0, 1.0, 0.0]
     assert effect_profile("decay", 3, 1.0)[1] == pytest.approx(0.5)
@@ -325,6 +330,34 @@ def test_effect_recovery_interval_is_event_clustered():
         0
     ]
     assert alone["bias_low"] is None and alone["bias_high"] is None
+
+
+def test_recovery_columns_compose_under_unequal_event_sizes():
+    """`estimated_mph - true_mph` must equal `bias_mph` exactly.
+
+    Both existing recovery tests give every event the same number of cells,
+    which is precisely when cell-weighting and event-weighting agree, so they
+    could not see the columns drifting apart. Here one event carries four cells
+    and the other one.
+    """
+    estimate = pd.DataFrame(
+        {
+            "event_id": ["A", "A", "A", "A", "B"],
+            "road": [1, 2, 3, 4, 1],
+            "minutes": 10,
+            "estimated": [-4.0, -4.0, -4.0, -4.0, 0.0],
+        }
+    )
+    truth = estimate.assign(hop=0, true_effect=-2.0)[
+        ["event_id", "road", "minutes", "hop", "true_effect"]
+    ]
+    row = effect_recovery(estimate, truth).query("group == 'pooled'").iloc[0]
+
+    assert row["estimated_mph"] - row["true_mph"] == pytest.approx(row["bias_mph"], abs=1e-9)
+    # Event-weighted: A averages -4 and B is 0, so the mean is -2, not the
+    # cell-weighted -3.2 that four A cells against one B cell would give.
+    assert row["estimated_mph"] == pytest.approx(-2.0)
+    assert row["bias_mph"] == pytest.approx(0.0)
 
 
 def test_effect_recovery_reports_pooled_hop_and_horizon():

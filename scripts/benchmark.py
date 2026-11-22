@@ -31,7 +31,7 @@ import pandas as pd
 from traffic_gml.data import load_tables
 from traffic_gml.evaluate import control_corrected, effect_recovery, effects, evaluate
 from traffic_gml.events import build_windows, fitted_cells, processed_tables, write_processed
-from traffic_gml.models import BASELINES, CONVS, TEMPORAL, build_model
+from traffic_gml.models import BASELINES, CONVS, TEMPORAL, build_model, resolve_device
 from traffic_gml.synthetic import PLACEMENTS, SHAPES, inject, matched_controls, treated_windows
 from traffic_gml.train import DEFAULTS, code_version, data_version, fit, set_seed
 
@@ -211,6 +211,7 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         json.dumps(
             {
                 "args": {k: str(v) for k, v in vars(args).items()},
+                "device": str(resolve_device(args.device)),
                 "code": code_version(),
                 "data": data_version(tables, Path(source)),
                 "benchmark": disruptions.settings,

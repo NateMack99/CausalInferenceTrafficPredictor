@@ -191,6 +191,11 @@ def event_datasets(
     pre-crash and `y` spans the crash itself. Only the crash's own road is
     unmasked, so a window scores that road and nothing else.
 
+    **`seed` only draws controls when `match_pre_event=False`.** A matched draw
+    is deterministic, so repeating a run under different seeds gives the same
+    control set. `docs/methodology.md` names the control draw as a top
+    uncertainty source; vary it with `match_pre_event=False`, not with `seed`.
+
     `match_pre_event` picks the eligible controls whose pre-crash speed level
     and trend are closest to the crash's own, instead of drawing at random.
     Both differences are scaled by their spread across the grid so neither
@@ -230,6 +235,10 @@ def event_datasets(
     window sets. The event set holds one window per crash: repeating it once
     per control would shrink the intervals without adding any information.
     """
+    if controls < 1:
+        # `controls=-1` slices [:-1] and silently returns every control but the
+        # worst match; `controls=0` dies later with an unrelated KeyError.
+        raise ValueError(f"controls must be at least 1, got {controls}")
     history, horizon = reference.history, reference.horizon
     values, clean = reference.values.numpy(), reference.clean.numpy()
     slot = reference.slot.numpy()
@@ -249,6 +258,8 @@ def event_datasets(
     bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)
     level, trend = pre_event_stats(values, history)
+    if match_hops and not match_pre_event:
+        raise ValueError("match_hops has no effect without match_pre_event")
     if match_hops:
         if edge_index is None:
             raise ValueError("match_hops needs edge_index to build the neighbourhood")
@@ -293,12 +304,17 @@ def event_datasets(
         events.append({**shared, "crash_time": times[int(crash_bin)], "origin": origin})
         if match_pre_event:
             candidates = np.array(usable_controls)
-            gap = sum(
+            terms = [
                 np.abs(stat[candidates, road] - stat[origin, road]) / scale
                 for stat, scale in zip((level, trend), spread, strict=True)
-            )
-            # NaN gaps sort last, so a candidate with no observed history is a
-            # last resort rather than a silent favourite.
+            ]
+            # `nansum`, not `sum`: 3% of events have no pre-event trend of their
+            # own, which made every candidate's gap NaN. `argsort` is stable, so
+            # the sort then returned bin order and the earliest weeks in the
+            # study period won -- neither matched nor random. Falling back to
+            # the level alone keeps those events matched on something.
+            gap = np.nansum(terms, axis=0)
+            gap[np.all(np.isnan(terms), axis=0)] = np.inf
             chosen = candidates[np.argsort(gap, kind="stable")[:controls]]
         else:
             chosen = rng.choice(
