@@ -292,6 +292,41 @@ def test_control_corrected_subtracts_the_mean_control_residual():
     assert "B" not in out.index.get_level_values("event_id")
 
 
+def test_effect_recovery_interval_is_event_clustered():
+    """Two events, five identical cells each. The interval has to be set by the
+    two events, not the ten cells, or a recovery claim gets a precision the
+    benchmark cannot support."""
+    estimate = pd.DataFrame(
+        {
+            "event_id": np.repeat(["A", "B"], 5),
+            "road": np.tile([1, 2, 3, 4, 5], 2),
+            "minutes": 10,
+            "estimated": np.repeat([-3.0, -1.0], 5),
+        }
+    )
+    truth = estimate.assign(hop=0, true_effect=-2.0)[
+        ["event_id", "road", "minutes", "hop", "true_effect"]
+    ]
+    row = effect_recovery(estimate, truth).query("group == 'pooled'").iloc[0]
+
+    assert row["events"] == 2 and row["n"] == 10
+    # Per-event errors are -1 and +1, so the bias is zero and the spread is 1.
+    assert row["bias_mph"] == pytest.approx(0.0)
+    clustered = 1.96 * float(pd.Series([-1.0, 1.0]).sem())
+    assert row["bias_high"] == pytest.approx(clustered, abs=1e-3)
+    assert row["bias_low"] == pytest.approx(-clustered, abs=1e-3)
+    # Ten copies of two numbers must not buy a narrower interval than two.
+    naive = 1.96 * float((estimate["estimated"] + 2.0).sem())
+    assert clustered > naive
+
+    # A single event cannot support an interval, and must say so rather than
+    # reporting a zero-width one.
+    alone = effect_recovery(estimate[estimate.event_id == "A"], truth[truth.event_id == "A"]).iloc[
+        0
+    ]
+    assert alone["bias_low"] is None and alone["bias_high"] is None
+
+
 def test_effect_recovery_reports_pooled_hop_and_horizon():
     """The hop and horizon rows are the point: a pooled number alone cannot say
     whether the spatial or time profile was recovered."""

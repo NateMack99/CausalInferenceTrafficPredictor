@@ -67,6 +67,36 @@ Conventions that are not flags:
   `fitted_cells(train) | fitted_cells(val)` to exclude them, and expect control supply to
   fall sharply.
 
+## Eligibility
+
+Three different questions, often confused because one funnel reports them. A
+crash can be an eligible **event** while most of its cells are ineligible
+**outcomes**, and a window can be an eligible **control** for one road and not
+another.
+
+| Eligibility | Asks | Rule | Where |
+| --- | --- | --- | --- |
+| Crash event | can this crash be studied? | matched to a monitored segment, on the speed grid, `history` bins before and `horizon` after fit, pre-crash history crash-free, at least one observed bin in that history, first crash in its (bin, road) | `events.event_datasets` |
+| Observed outcome | is this cell scored? | the speed is observed and the road is unmasked for that window | `Windows.__getitem__`, `y_mask` |
+| Control match | can this window stand in? | same road, same slot of the week, at least `history + horizon` bins away, in bounds, crash-free across its whole span, an observed target, and for a model-based estimate not a fitted cell | `events.event_datasets` |
+
+Two consequences worth stating, because both have been misread:
+
+- **A masked outcome does not shrink the event sample.** The estimator masks
+  unobserved targets rather than requiring complete series, so requiring every
+  bin observed gives a far smaller number that is not the sample size. The
+  funnel nests the strict rows inside the analysis sample to make this visible.
+- **The pre-history threshold is one observed bin, not a full history.** The
+  requirement is that the lag span is crash-free and has something in it, not
+  that it is complete.
+
+Exposure and masking: a crash contaminates its own road and every road within
+`--exposure-hops` (2) for `--horizon` (6) bins after it is reported, undirected,
+and that mask applies to **inputs and targets alike**. Over-reaching is the
+safe error when excluding training data. The forward extent is an assumption,
+not a measurement, and the crash-time rounding recorded below means the
+backward extent is not exact either.
+
 ## Exclusion rules
 
 Two filtering stages. The first reduces the raw crash table to crashes that sit on

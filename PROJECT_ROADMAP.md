@@ -66,7 +66,7 @@ Estimate how reported traffic crashes affect speeds on the incident road and con
 
 - [ ] Run the existing pipeline's expanded-window **data/coverage diagnostics**; report matched events, missingness, candidate controls, attrition, and 0/1/2-hop feasibility. Add a simple monthly breakdown only if absent. *(Monthly breakdown shipped as `evaluate.monthly_coverage`; funnel, attrition and hop feasibility already exist. Awaiting the expanded run.)*
 - [ ] Preserve the original zero-speed convention; investigate its semantics and define a retaining-vs-excluding sensitivity comparison for the final runs. *(`--drop-zero-speed` defaults off, so the convention is preserved, and `docs/experiments.md` defines the comparison and its side effects. The portal's meaning for 0.0 is still unconfirmed.)*
-- [ ] Distinguish crash-event, observed-outcome, and control-matching eligibility. Document pre-history thresholds and exposure/masking choices.
+- [x] Distinguish crash-event, observed-outcome, and control-matching eligibility. Document pre-history thresholds and exposure/masking choices.
 - [ ] Save reusable expanded inputs and coverage outputs without overwriting the frozen pilot.
 
 **Done when:** Expanded data and the inclusion rules are documented and load correctly on a small sample. **GPU forecasting is not a blocker.**
@@ -126,7 +126,7 @@ Estimate how reported traffic crashes affect speeds on the incident road and con
 **Purpose:** Turn counterfactual predictions and the semi-synthetic truth table into research results.
 
 - [ ] Finish the **scoring runner** that reads saved predictions, matching assignments, and known-effect labels; reuse one estimator for synthetic and real events. *(`scripts/benchmark.py` scores synthetic events end to end, but computes predictions in-process rather than reading saved ones, and the real-event path still lives in `scripts/midpoint.py`.)*
-- [ ] Score average-effect bias, temporal/0–2-hop recovery, and uncertainty where supported; compare forecasters on the same held-out event set. *(Bias and 0/1/2-hop recovery shipped; `effect_recovery` reports no interval yet.)*
+- [x] Score average-effect bias, temporal/0–2-hop recovery, and uncertainty where supported; compare forecasters on the same held-out event set. *(Bias now carries an event-clustered 95% interval; MAE/RMSE stay cell-level error magnitudes.)*
 - [x] Keep forecasting MAE/RMSE separate from effect recovery. For additive injection, unadjusted individual-effect error algebraically equals untreated forecast error; do not treat that alone as independent causal validation.
 - [x] Smoke-test the runner with a hand-checked example and a tiny end-to-end case.
 
