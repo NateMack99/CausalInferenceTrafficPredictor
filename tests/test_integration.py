@@ -23,7 +23,13 @@ from traffic_gml.evaluate import (
     monthly_coverage,
     neighbour_coverage,
 )
-from traffic_gml.events import build_windows, crash_index, event_datasets, processed_tables
+from traffic_gml.events import (
+    build_windows,
+    crash_index,
+    event_datasets,
+    pre_event_stats,
+    processed_tables,
+)
 from traffic_gml.mock import make_mock
 from traffic_gml.models import build_model
 
@@ -280,3 +286,50 @@ def test_monthly_coverage_accounts_for_every_bin_and_event(events):
     # A crash id that does not line up must raise, not be reported as zero supply.
     with pytest.raises(ValueError, match="do not line up"):
         monthly_coverage(train, tables["crashes"], table, controls.assign(crash_record_id="nope"))
+
+
+def test_pre_event_stats_are_the_trailing_mean_and_its_change():
+    """Hand-built, so a window off by one bin cannot hide."""
+    speeds = np.array([[10.0], [10.0], [20.0], [20.0], [np.nan], [np.nan]], dtype="float32")
+    level, trend = pre_event_stats(speeds, history=4)
+
+    assert level[3, 0] == pytest.approx(15.0)  # mean of bins 0..3
+    assert trend[3, 0] == pytest.approx(10.0)  # last two minus first two
+    assert level[1, 0] == pytest.approx(10.0)  # short window at the start
+    # Unobserved bins contribute nothing rather than zero.
+    assert level[5, 0] == pytest.approx(20.0)
+    assert np.isnan(pre_event_stats(np.full((4, 1), np.nan, "float32"), 4)[0][3, 0])
+
+
+def test_matched_controls_sit_closer_in_pre_event_level_and_trend(events):
+    """The point of matching: the arms should start from the same place.
+
+    Random draws left the arms differing in pre-event trend by more than the
+    effect being measured, so this asserts the matched draw is closer on the
+    statistics it matches on.
+    """
+    tables, sets, _, _, _, _, _ = events
+    train = sets["train"]
+    ids = np.sort(tables["segments"].segment_id.unique())
+    level, trend = pre_event_stats(train.values.numpy(), train.history)
+
+    def mean_gap(match: bool) -> float:
+        table, controls, _, _ = event_datasets(
+            train, tables["crashes"], ids, controls=3, seed=0, match_pre_event=match
+        )
+        pairs = controls.merge(
+            table[["crash_record_id", "origin"]], on="crash_record_id", suffixes=("_c", "_e")
+        )
+        gaps = [
+            abs(level[c, r] - level[e, r]) + abs(trend[c, r] - trend[e, r])
+            for c, e, r in zip(pairs.origin_c, pairs.origin_e, pairs.road, strict=True)
+        ]
+        return float(np.nanmean(gaps))
+
+    assert mean_gap(match=True) < mean_gap(match=False)
+
+    # Matching is deterministic, so it does not move with the seed; the random
+    # draw does. That is what keeps a matched run reproducible.
+    first, _, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=1)
+    second, _, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=2)
+    pd.testing.assert_frame_equal(first, second)
