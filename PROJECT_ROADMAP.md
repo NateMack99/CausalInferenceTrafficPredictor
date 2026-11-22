@@ -64,10 +64,11 @@ Estimate how reported traffic crashes affect speeds on the incident road and con
 
 **Purpose:** Prepare a larger, well-defined analysis sample. **This PR does not require full model retraining to close its data-work portion.**
 
-- [ ] Run the existing pipeline's expanded-window **data/coverage diagnostics**; report matched events, missingness, candidate controls, attrition, and 0/1/2-hop feasibility. Add a simple monthly breakdown only if absent. *(Monthly breakdown shipped as `evaluate.monthly_coverage`; funnel, attrition and hop feasibility already exist. Awaiting the expanded run.)*
-- [x] Preserve the original zero-speed convention; investigate its semantics and define a retaining-vs-excluding sensitivity comparison for the final runs. *(`--drop-zero-speed` defaults off; `docs/experiments.md` defines the comparison and its side effects and `docs/hpc-run.md` step 8 is the run. The portal's meaning for 0.0 is still unconfirmed.)*
+- [ ] Run the existing pipeline's expanded-window **data/coverage diagnostics**; report matched events, missingness, candidate controls, attrition, and 0/1/2-hop feasibility. Add a simple monthly breakdown only if absent. *(Monthly breakdown shipped as `evaluate.monthly_coverage`; funnel, attrition and hop feasibility already exist. Awaiting run A.)*
+- [x] Settle which published archive to analyse. *(`docs/data.md` records the three segment-level archives, the verified bulk spans, the nine-month hole and the rejection of the 2011-2018 archive; `scripts/fetch_speeds_history.sh` stages any span. Run A is 2024-06-11 to 2026-05-01, run B is 2018-02-28 to 2023-09-07, kept separate so no window straddles the hole.)*
+- [x] Preserve the original zero-speed convention; investigate its semantics and define a retaining-vs-excluding sensitivity comparison for the final runs. *(`--drop-zero-speed` defaults off; `docs/experiments.md` defines the comparison and its side effects, and it is step 5 of `slurm/experiment.slurm`. The portal's meaning for 0.0 is still unconfirmed.)*
 - [x] Distinguish crash-event, observed-outcome, and control-matching eligibility. Document pre-history thresholds and exposure/masking choices.
-- [x] Save reusable expanded inputs and coverage outputs without overwriting the frozen pilot. *(`scripts/midpoint.py` now refuses to replace a non-empty `--processed`, so the frozen tables cannot be overwritten by accident; the handoff writes to `data/processed-expanded` and `outputs/expanded*`.)*
+- [x] Save reusable expanded inputs and coverage outputs without overwriting the frozen pilot. *(`scripts/experiment.py` now refuses to replace a non-empty `--processed`, so the frozen tables cannot be overwritten by accident; the handoff writes to `data/processed-runA` and `outputs/runA*`.)*
 
 **Done when:** Expanded data and the inclusion rules are documented and load correctly on a small sample. **GPU forecasting is not a blocker.**
 
@@ -125,7 +126,7 @@ Estimate how reported traffic crashes affect speeds on the incident road and con
 
 **Purpose:** Turn counterfactual predictions and the semi-synthetic truth table into research results.
 
-- [ ] Finish the **scoring runner** that reads saved predictions, matching assignments, and known-effect labels; reuse one estimator for synthetic and real events. *(`scripts/benchmark.py` scores synthetic events end to end, but computes predictions in-process rather than reading saved ones, and the real-event path still lives in `scripts/midpoint.py`.)*
+- [ ] Finish the **scoring runner** that reads saved predictions, matching assignments, and known-effect labels; reuse one estimator for synthetic and real events. *(`scripts/benchmark.py` scores synthetic events end to end, but computes predictions in-process rather than reading saved ones, and the real-event path still lives in `scripts/experiment.py`.)*
 - [x] Score average-effect bias, temporal/0–2-hop recovery, and uncertainty where supported; compare forecasters on the same held-out event set. *(Bias now carries an event-clustered 95% interval; MAE/RMSE stay cell-level error magnitudes.)*
 - [x] Keep forecasting MAE/RMSE separate from effect recovery. For additive injection, unadjusted individual-effect error algebraically equals untreated forecast error; do not treat that alone as independent causal validation.
 - [x] Smoke-test the runner with a hand-checked example and a tiny end-to-end case.
@@ -161,7 +162,7 @@ Estimate how reported traffic crashes affect speeds on the incident road and con
 - [ ] Run high-value robustness checks: pre-event placebo, matched-control sensitivity, and the zero-speed convention if the data interpretation remains ambiguous.
 - [ ] Skip optional hyperparameter/architecture grids if the primary results, presentation, or paper need attention.
 
-**HPC handoff rule:** Every run receives (1) an agreed commit, (2) one exact command/argument set, (3) input location, (4) output destination, and (5) the expected result files. Keep runs in `outputs/expanded/`, `outputs/synthetic/`, or uniquely named subdirectories; never reuse `outputs/midpoint/`.
+**HPC handoff rule:** Every run receives (1) an agreed commit, (2) one exact command/argument set, (3) input location, (4) output destination, and (5) the expected result files. Keep runs in `outputs/runA*`, `outputs/runB*`, or uniquely named subdirectories; never reuse `outputs/midpoint/`.
 
 ---
 
