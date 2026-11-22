@@ -58,6 +58,7 @@ a low forecast MAE is not.
 - [Data sources and schemas](docs/data.md)
 - [Research methodology](docs/methodology.md)
 - [Experiment settings, exclusion rules, frozen baseline](docs/experiments.md)
+- [HPC run handoff](docs/hpc-run.md)
 - [Guidelines for coding agents](AGENTS.md)
 
 ## Research and paper

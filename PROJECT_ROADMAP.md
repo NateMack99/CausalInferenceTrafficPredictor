@@ -65,9 +65,9 @@ Estimate how reported traffic crashes affect speeds on the incident road and con
 **Purpose:** Prepare a larger, well-defined analysis sample. **This PR does not require full model retraining to close its data-work portion.**
 
 - [ ] Run the existing pipeline's expanded-window **data/coverage diagnostics**; report matched events, missingness, candidate controls, attrition, and 0/1/2-hop feasibility. Add a simple monthly breakdown only if absent. *(Monthly breakdown shipped as `evaluate.monthly_coverage`; funnel, attrition and hop feasibility already exist. Awaiting the expanded run.)*
-- [ ] Preserve the original zero-speed convention; investigate its semantics and define a retaining-vs-excluding sensitivity comparison for the final runs. *(`--drop-zero-speed` defaults off, so the convention is preserved, and `docs/experiments.md` defines the comparison and its side effects. The portal's meaning for 0.0 is still unconfirmed.)*
+- [x] Preserve the original zero-speed convention; investigate its semantics and define a retaining-vs-excluding sensitivity comparison for the final runs. *(`--drop-zero-speed` defaults off; `docs/experiments.md` defines the comparison and its side effects and `docs/hpc-run.md` step 8 is the run. The portal's meaning for 0.0 is still unconfirmed.)*
 - [x] Distinguish crash-event, observed-outcome, and control-matching eligibility. Document pre-history thresholds and exposure/masking choices.
-- [ ] Save reusable expanded inputs and coverage outputs without overwriting the frozen pilot.
+- [x] Save reusable expanded inputs and coverage outputs without overwriting the frozen pilot. *(`scripts/midpoint.py` now refuses to replace a non-empty `--processed`, so the frozen tables cannot be overwritten by accident; the handoff writes to `data/processed-expanded` and `outputs/expanded*`.)*
 
 **Done when:** Expanded data and the inclusion rules are documented and load correctly on a small sample. **GPU forecasting is not a blocker.**
 
@@ -142,7 +142,7 @@ Estimate how reported traffic crashes affect speeds on the incident road and con
 
 ### Can start immediately (nonblocking)
 
-- [ ] Sync the current working branch, environment, and gitignored data; verify CUDA, memory, and output permissions.
+- [ ] Sync the current working branch, environment, and gitignored data; verify CUDA, memory, and output permissions. *(Exact commands, file list and expected outputs are in `docs/hpc-run.md`.)*
 - [ ] Build the graph for the expanded historical window; run **data-only** coverage, attrition, and control-supply reporting if the existing pipeline supports it.
 - [ ] Verify a short GPU smoke run using a stable model branch and record device, code revision, arguments, and runtime.
 - [ ] Save aggregate/monthly coverage outputs for the paper. The expanded sample information can be useful before the final model is trained.

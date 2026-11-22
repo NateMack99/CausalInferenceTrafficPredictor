@@ -169,6 +169,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     parser.add_argument("--out", type=Path, default=Path("outputs/midpoint"))
     parser.add_argument("--processed", type=Path, default=Path("data/processed"))
+    parser.add_argument(
+        "--overwrite-processed",
+        action="store_true",
+        help="allow the join to replace existing tables in --processed",
+    )
     parser.add_argument("--history", type=int, default=12)
     parser.add_argument("--horizon", type=int, default=6)
     parser.add_argument("--exposure-hops", type=int, default=2)
@@ -217,6 +222,18 @@ def main(argv: list[str] | None = None) -> dict:
     else:
         window = tuple(args.window) if args.window else None
         tables = processed_tables(args.speeds, args.graph, args.crashes, window)
+        # The join overwrites whatever is in --processed, and the default is the
+        # frozen March-April set that every recorded result rests on. A run over
+        # a different window would replace it silently and every later `--data`
+        # run would read the new tables while reporting the old provenance.
+        existing = sorted(args.processed.glob("*.parquet"))
+        if existing and not args.overwrite_processed:
+            raise SystemExit(
+                f"{args.processed} already holds {len(existing)} tables. Joining a "
+                "different window would replace them and silently change what every "
+                "later --data run reads. Pass --processed <new dir> for a new window, "
+                "or --overwrite-processed if you really mean to replace these."
+            )
         write_processed(tables, args.processed)
         print(f"joined the pipeline into {args.processed}")
     print("  " + "  ".join(f"{name}={len(table):,}" for name, table in tables.items()))

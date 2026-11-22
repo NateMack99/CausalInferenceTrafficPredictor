@@ -7,6 +7,8 @@ models never see because crash windows are masked out of training.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -364,3 +366,38 @@ def test_matching_hops_needs_a_graph(events):
     )
     assert len(narrow) == len(wide), "matching changes the draw, never the eligible sample"
     assert len(w_controls)
+
+
+def test_midpoint_refuses_to_replace_existing_processed_tables(pipeline, tmp_path):
+    """The join writes to `--processed`, whose default holds the frozen tables
+    every recorded result rests on. Replacing them silently would change what
+    later `--data` runs read while the provenance still named the old window."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "midpoint", Path(__file__).resolve().parents[1] / "scripts" / "midpoint.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    speeds_dir, graphml, crash_csv = pipeline
+    processed = tmp_path / "processed"
+    processed.mkdir()
+    (processed / "speeds.parquet").write_bytes(b"")
+    argv = [
+        "--speeds",
+        str(speeds_dir),
+        "--graph",
+        str(graphml),
+        "--crashes",
+        str(crash_csv),
+        "--processed",
+        str(processed),
+        "--out",
+        str(tmp_path / "out"),
+    ]
+    with pytest.raises(SystemExit, match="already holds"):
+        module.main(argv)
+
+    # An empty directory is fine, and so is saying you mean it.
+    assert module.parse_args([*argv, "--overwrite-processed"]).overwrite_processed
