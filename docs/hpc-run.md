@@ -9,8 +9,21 @@ Two published archives, each its own run. Submit A first; do not block it on B.
 
 | Run | Window | Speed rows | `--mem` | `--time` |
 | --- | --- | ---: | ---: | ---: |
-| **A** required | `2024-06-11 2026-05-01` | 86.9M | 48G | 18:00:00 |
+| **A** required | `2024-06-11 2026-05-01` | 101.1M | 48G | 18:00:00 |
 | **B** secondary | `2018-02-28 2023-09-07` | 274.9M | 128G | 36:00:00 |
+
+Both windows are `[start, end)`, so run B's `2023-09-07` includes all of
+2023-09-06, the archive's last day. Each window spans its whole archive: the
+counts above are `count(*)` from the portal, not the column metadata, which
+understates `4g9f-3jbs` by 16% because that archive was still being appended to
+when the cache was built.
+
+Run A opens mid-month on purpose, because the archive itself starts at
+2024-06-11T13:01. That does not distort the monthly report:
+`evaluate.monthly_coverage` emits a `bins` column per month and computes
+`observed_pct` against that month's own bins, so a short month is visible
+rather than misleading. Trimming to whole interior months would drop about 7%
+of the window to tidy a diagnostic table.
 
 A nine-month hole (2023-09-07 to 2024-06-10) separates the archives, so they
 stay in separate runs and no event window straddles it. `docs/data.md` has the
@@ -24,6 +37,7 @@ cd CHANGE_ME_PROJECT_DIR
 git checkout main && git pull
 git rev-parse --short HEAD          # record this; it ships with the results
 uv venv --python 3.12 .venv && uv sync --locked
+mkdir -p logs            # Slurm opens the log file before the job runs
 ```
 
 Then set your allocation in both job files, replacing `CHANGE_ME` on the
@@ -64,8 +78,8 @@ sbatch --export=ALL,START=2024-06-11,END=2026-05-01 slurm/fetch.slurm
 
 Speeds come down one month per request and crashes in one; a rerun reuses
 months already on disk, so a timed-out job can just be resubmitted. The
-intermediate CSV is about 3 GB for run A and 9 GB for run B and can be deleted
-afterwards. If the portal rate-limits, put a Socrata app token in `data/.env` as
+intermediate CSV is about 3.5 GB for run A and 9 GB for run B and can be
+deleted afterwards. If the portal rate-limits, put a Socrata app token in `data/.env` as
 `CHICAGO_DATA_APP_TOKEN=...` and resubmit; it is not required.
 
 When it finishes, `rows` in the printed manifest must **not** be exactly
@@ -73,19 +87,29 @@ When it finishes, `rows` in the printed manifest must **not** be exactly
 
 ## 4. Check before submitting
 
+On the login node:
+
 ```bash
 uv run python -c "
 import pandas as pd; r = pd.read_parquet('data/speed_roads.parquet')
 print(len(r), 'edges;', r.segment_id.nunique(), 'segments')"   # expect 6249 edges; 881 segments
 
 uv run ruff check . && uv run pytest -q                        # expect 69 passed
-
-uv run python -m traffic_gml.mock --out data/mock
-uv run python -m traffic_gml.train --data data/mock --model stgcn --epochs 2 --device auto
 ```
 
-The last command is the GPU smoke test; record the device line it prints. Stop
-on any failure rather than submitting.
+Then the GPU smoke test, which only proves anything **inside an allocation**:
+
+```bash
+salloc -A CHANGE_ME_ALLOCATION -p gpu --gres=gpu:1 -c 4 --mem=16G -t 00:30:00
+uv run python -m traffic_gml.mock --out data/mock
+uv run python -m traffic_gml.train --data data/mock --model stgcn --epochs 2 --device auto
+exit
+```
+
+Record the device line it prints. `--device auto` falls back to CPU silently, so
+a run that prints `cpu` here means the allocation has no visible GPU. Stop on
+any failure rather than submitting. The job itself asserts CUDA before doing
+any work, so a misallocated run fails fast rather than quietly taking days.
 
 ## 5. Submit
 
@@ -105,9 +129,10 @@ sacct -j CHANGE_ME_JOBID --format=JobID,State,Elapsed,MaxRSS,ReqMem
 
 `MaxRSS` against `ReqMem` is the first thing to check if a job dies.
 
-**On a retry**, add `--overwrite-processed` to the two `scripts/experiment.py`
-calls in `slurm/experiment.slurm` and change `RUN` (say `runA2`), so nothing
-writes into a used output directory.
+**If a job is killed**, resubmit the same command. Each of the five stages is
+skipped once its own `summary.json` exists, so a resubmission resumes where the
+previous attempt stopped and replaces only the partial stage. Nothing needs
+editing, and `RUN` should stay the same.
 
 For run B, repeat steps 3 and 5 with `START=2018-02-28 END=2023-09-07`,
 `RUN=runB`, `--mem=128G` and `--time=36:00:00`.

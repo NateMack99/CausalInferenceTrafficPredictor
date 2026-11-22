@@ -30,9 +30,14 @@ The portal splits one segment-level series across three datasets. Checked
 
 | Dataset | Real bulk span | Rows | Verdict |
 |---|---|---:|---|
-| [`4g9f-3jbs`](https://data.cityofchicago.org/d/4g9f-3jbs) | 2024-06-11 to 2026-04-30 | 86.9M | **Primary** (run A). |
+| [`4g9f-3jbs`](https://data.cityofchicago.org/d/4g9f-3jbs) | 2024-06-11 to 2026-04-30 | 101.1M | **Primary** (run A). |
 | [`sxs8-h27x`](https://data.cityofchicago.org/d/sxs8-h27x) | 2018-02-28 to 2023-09-06 | 274.9M | **Secondary** (run B). |
 | [`77hq-huss`](https://data.cityofchicago.org/d/77hq-huss) | 2011-08-02 to 2018-05-03 | 19.6M | **Rejected**, see below. |
+
+Row counts are `count(*)` from the portal. Do not use the column metadata's
+`non_null`: it understates `4g9f-3jbs` as 86.9M because that archive was still
+being appended to when the cache was built. `sxs8-h27x`, static since 2025,
+matches.
 
 Those are the spans of the *bulk* data and are not what the dataset titles or
 the `min(time)`/`max(time)` metadata report. Each modern archive carries one
