@@ -132,12 +132,13 @@ change there is worth flagging immediately.
 
 ## Rules
 
-- Never write to `outputs/midpoint/` or `data/processed/`. They are the frozen
-  pilot every recorded result rests on.
 - Never run `scripts/prepare_roads.py` or `scripts/download_street_graph.py`.
   OpenStreetMap is live, so a rebuild today yields different node IDs than the
   2026-11-08 download the pilot used, silently breaking every
   pilot-versus-expanded comparison. Step 2 is the only way these files arrive.
+- `outputs/` and `data/processed*` are gitignored, so a fresh clone has neither
+  the frozen pilot nor any results. Everything you produce is untracked and has
+  to be copied back (step 6).
 - One run, one `RUN` tag. Stale files from a previous run read as current.
 - Do not change filtering, window or seed arguments to improve the numbers. If
   a count looks wrong, report it.
