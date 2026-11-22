@@ -25,12 +25,12 @@ On real data, build the road graph first, then run the pipeline:
 ```bash
 uv run python scripts/build_graph.py --no-fetch \
     --crash-window 2025-03-01 2025-05-01 --speed-window 2025-03-01 2025-05-01
-uv run python scripts/midpoint.py --speeds data/parquet/chicago-speeds \
+uv run python scripts/experiment.py --speeds data/parquet/chicago-speeds \
     --graph outputs/<stem>_segments.graphml --crashes outputs/<stem>_crash_segments.csv \
     --window 2025-03-01 2025-05-01 --static-features length_m degree betweenness
 ```
 
-Point `--data` at `data/processed` once the collection and graph steps have run. `--model` takes `persistence`, `historical_mean`, `mlp`, `gcn`, `sage`, `tgru` or `stgcn`; see `--help` for the window, model and optimisation flags. Read the graph effect off `gcn` against `mlp`, and `stgcn` against `tgru`: each pair differs only in having edges, at matched parameter counts. Each run records its arguments and metrics under `outputs/`. `scripts/midpoint.py` runs the whole pipeline: it joins the speed, crash and road-graph outputs into those tables, trains every model on identical splits, estimates crash effects against matched accident-free controls, and writes the figures and `results.csv` under `outputs/midpoint/`.
+Point `--data` at `data/processed` once the collection and graph steps have run. `--model` takes `persistence`, `historical_mean`, `mlp`, `gcn`, `sage`, `tgru` or `stgcn`; see `--help` for the window, model and optimisation flags. Read the graph effect off `gcn` against `mlp`, and `stgcn` against `tgru`: each pair differs only in having edges, at matched parameter counts. Each run records its arguments and metrics under `outputs/`. `scripts/experiment.py` runs the whole pipeline: it joins the speed, crash and road-graph outputs into those tables, trains every model on identical splits, estimates crash effects against matched accident-free controls, and writes the figures and `results.csv` under `--out` (default `outputs/run`). `outputs/midpoint/` holds the frozen March-April pilot and is never written to again; `docs/hpc-run.md` covers the final cluster runs.
 
 Two further entry points need no real data to be useful:
 

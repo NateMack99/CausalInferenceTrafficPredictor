@@ -257,7 +257,7 @@ to compare against.
 - **Graph:** `graph_20250301T000000_20250501T000000_all_20261108T203320189921Z`.
 
 ```
-uv run python scripts/midpoint.py \
+uv run python scripts/experiment.py \
   --speeds data/parquet/chicago-speeds \
   --graph outputs/<stamp>_segments.graphml \
   --crashes outputs/<stamp>_crash_segments.csv \

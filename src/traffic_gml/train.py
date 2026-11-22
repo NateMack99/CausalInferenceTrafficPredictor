@@ -120,7 +120,7 @@ def fit(
     return history
 
 
-#: Shared with `scripts/midpoint.py` so both entry points train the same thing.
+#: Shared with `scripts/experiment.py` so both entry points train the same thing.
 DEFAULTS = {"epochs": 30, "lr": 1e-3, "batch_size": 64, "patience": 5, "hidden": 64}
 
 
