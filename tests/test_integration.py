@@ -332,11 +332,24 @@ def test_matched_controls_sit_closer_in_pre_event_level_and_trend(events):
 
     assert mean_gap(match=True) < mean_gap(match=False)
 
-    # Matching is deterministic, so it does not move with the seed; the random
-    # draw does. That is what keeps a matched run reproducible.
-    first, _, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=1)
-    second, _, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=2)
-    pd.testing.assert_frame_equal(first, second)
+    # Matching is deterministic, so the *controls* do not move with the seed,
+    # while a random draw's do. Comparing the event tables proved nothing: those
+    # never depend on the seed either way.
+    _, matched_a, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=1)
+    _, matched_b, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=2)
+    pd.testing.assert_frame_equal(matched_a, matched_b)
+    _, drawn_a, _, _ = event_datasets(
+        train, tables["crashes"], ids, controls=3, seed=1, match_pre_event=False
+    )
+    _, drawn_b, _, _ = event_datasets(
+        train, tables["crashes"], ids, controls=3, seed=2, match_pre_event=False
+    )
+    assert not drawn_a.equals(drawn_b), "a random draw must move with the seed"
+
+    with pytest.raises(ValueError, match="at least 1"):
+        event_datasets(train, tables["crashes"], ids, controls=0)
+    with pytest.raises(ValueError, match="no effect without"):
+        event_datasets(train, tables["crashes"], ids, match_hops=2, match_pre_event=False)
 
 
 def test_neighbourhood_smoothing_averages_only_observed_roads():

@@ -89,9 +89,9 @@ PR #3 plus `scripts/midpoint.py`:
   placebo share is 0.17–0.27, and 1-/2-hop differences whose placebos are 59–66% of the
   estimate. `docs/experiments.md` records the numbers. **The spillover rows are therefore
   **inconclusive rather than zero**, and `causal.against_placebo` exists so that ratio is
-  printed beside the effect rather than sitting in a second table nobody opens. Three
-  matching rules were tried (crash road, 1-hop and 2-hop neighbourhood) and none brings a
-  spillover row's placebo share under 0.6 on the same 2,720 events. That is a statement
+  printed beside the effect rather than sitting in a second table nobody opens. Four
+  matching rules were tried (crash road, 1-hop and 2-hop neighbourhood, and a random draw)
+  and none brings a spillover row's placebo share under 0.59 on the same 2,720 events. That is a statement
   about the controls, not about traffic: these controls cannot separate a neighbouring-road
   effect from pre-existing differences between the arms, and a real effect could be present
   and still be unidentifiable this way. Report its magnitude and direction as uncertain.

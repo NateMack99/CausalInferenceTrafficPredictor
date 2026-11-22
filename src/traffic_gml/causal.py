@@ -32,7 +32,7 @@ import pandas as pd
 from torch import Tensor
 
 from .data import BIN_MINUTES
-from .events import Windows, crash_index, hop_rings
+from .events import Windows, crash_index, hop_rings, pre_event_stats
 
 
 def reported_cells(
@@ -171,13 +171,23 @@ def event_study(
     road inside the window.
     """
     crash_arm = arm_table(reference, events, edge_index, hops, reported)
-    control_arm = arm_table(
-        reference, controls, edge_index, hops, reported, require_clean_post=True
-    )
+    # No `reported` for the control arm: `require_clean_post` already rejects
+    # any road whose post span is dirty, and a reported crash is always inside
+    # that mask, so the flag is False on every control row and is dropped by the
+    # groupby regardless.
+    control_arm = arm_table(reference, controls, edge_index, hops, require_clean_post=True)
     pooled = control_arm.groupby(["event_id", "road", "hop", "minutes"], as_index=False).agg(
         control_delta=("delta", "mean"), n_controls=("delta", "size")
     )
-    merged = crash_arm.merge(pooled, on=["event_id", "road", "hop", "minutes"])
+    keys = ["event_id", "road", "hop", "minutes"]
+    merged = crash_arm.merge(pooled, on=keys, how="left", indicator=True)
+    # A crash cell whose control did not survive is dropped, and the loss is
+    # hop-dependent, so count it rather than letting the distance profile be
+    # read across slightly different samples per ring.
+    merged.attrs["dropped_by_hop"] = (
+        merged.loc[merged["_merge"] == "left_only"].groupby("hop").size().to_dict()
+    )
+    merged = merged.loc[merged["_merge"] == "both"].drop(columns="_merge")
     merged["did"] = merged["delta"] - merged["control_delta"]
     return merged
 
@@ -241,8 +251,13 @@ def against_placebo(effect: pd.DataFrame, placebo: pd.DataFrame) -> pd.DataFrame
         placebo[["hop", "minutes", "effect"]].rename(columns={"effect": "placebo"}),
         on=["hop", "minutes"],
     )
-    share = (merged["placebo"].abs() / merged["effect"].abs().replace(0, np.nan)).round(2)
-    merged["placebo_share"] = share
+    # `inf`, not NaN, when the effect rounds to zero. An effect of -0.000 beside
+    # a placebo of -0.018 is the most unidentified row there is, and dividing by
+    # the rounded effect used to blank it -- so the table went quiet on exactly
+    # the row it exists to flag, and `idxmax` skipped it when picking the worst.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        share = merged["placebo"].abs() / merged["effect"].abs()
+    merged["placebo_share"] = share.round(2)
     keep = ["hop", "minutes", "effect", "low", "high", "placebo", "placebo_share", "events"]
     return merged[[c for c in keep if c in merged.columns]]
 
@@ -338,9 +353,12 @@ def covariate_balance(
     """
     if len(segment_ids) != reference.num_roads:
         raise ValueError("segment_ids does not match the grid these windows were built on")
-    values = reference.values.numpy()
-    history = reference.history
     static = segments.set_index("segment_id").reindex(segment_ids)
+    # The matcher's own statistics, not a second implementation of them. The
+    # hand-rolled version split the history the other way round and diverged by
+    # up to 11 mph at an odd `--history`, so the balance table would have
+    # reported a quantity the matcher never optimised.
+    level, trend = pre_event_stats(reference.values.numpy(), reference.history)
 
     def describe(frame: pd.DataFrame) -> pd.DataFrame:
         rows = []
@@ -348,16 +366,10 @@ def covariate_balance(
             frame["event_id"], frame["road"], frame["origin"], strict=True
         ):
             road, origin = int(road), int(origin)
-            window = values[origin - history + 1 : origin + 1, road]
-            half = history // 2
-            early, late = window[:half], window[half:]
-            early, late = early[np.isfinite(early)], late[np.isfinite(late)]
             row = {
                 "event_id": event_id,
-                "pre_level": float(np.nanmean(window)) if np.isfinite(window).any() else np.nan,
-                "pre_trend": (
-                    float(late.mean() - early.mean()) if early.size and late.size else np.nan
-                ),
+                "pre_level": float(level[origin, road]),
+                "pre_trend": float(trend[origin, road]),
             }
             for name in columns:
                 row[name] = float(static[name].iloc[road]) if name in static.columns else np.nan

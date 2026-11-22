@@ -201,13 +201,19 @@ to the mean pre-event level and trend over a road's k-hop neighbourhood. It
 moves the problem around and does not solve it. Placebo share at 10 minutes,
 same 2,720 events throughout, only the control draw changes:
 
-| matched on | hop 0 | hop 1 | hop 2 |
-| --- | ---: | ---: | ---: |
-| crash road (default) | **0.06** | 1.59 | 0.68 |
-| 1-hop neighbourhood | 0.31 | 1.37 | 0.82 |
-| 2-hop neighbourhood | 0.24 | 0.73 | 0.60 |
+| matched on | hop 0 | hop 1 | hop 2 | flag |
+| --- | ---: | ---: | ---: | --- |
+| crash road (default) | **0.04** | 1.55 | 0.69 | none |
+| 1-hop neighbourhood | 0.31 | 1.39 | 0.84 | `--match-hops 1` |
+| 2-hop neighbourhood | 0.23 | 0.74 | 0.60 | `--match-hops 2` |
+| random draw | 0.27 | 0.66 | 0.59 | `--random-controls` |
 
-**No specification brings a spillover row under 0.6**, and the one that helps
+Each row is one `scripts/event_study.py --data data/processed --hops 2
+--controls 5` run with the flag shown. The random row is kept because PR #10
+asks for a matching-rule sensitivity, not because it is a better answer: it
+gives a larger 1-hop number and a worse direct effect.
+
+**No specification brings a spillover row under 0.59**, and the one that helps
 the spillover most is the one that spoils the direct effect. `placebo_share` is
 the ratio `|placebo| / |effect|`, nothing more: it is unbounded, it exceeds 1
 whenever the placebo is larger than the estimate, and it is **not** a
@@ -221,7 +227,7 @@ sensitivity check rather than as a better answer.
 Read together, these three rows say the spillover estimate is **inconclusive,
 not zero**. They show the control-matching design cannot separate a
 neighbouring-road effect from pre-existing differences between the arms, under
-any of the three rules tried. They do not show that crashes leave neighbouring
+any of the four rules tried. They do not show that crashes leave neighbouring
 roads unaffected: a true effect could be present and still be unidentifiable
 with these controls. The reason is not sample size, since every row above rests
 on the same 2,720 events. Report the magnitude and direction as uncertain.

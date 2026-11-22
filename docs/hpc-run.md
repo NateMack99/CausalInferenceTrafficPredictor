@@ -52,7 +52,9 @@ relative paths:
 | `data/parquet/chicago-crashes/` | included above | the graph build |
 | `data/chicago_road_network.graphml` | 41 MB | the road graph |
 | `data/chicago-traffic-segments.json` | 372 KB | segment geometry |
-| `data/speed_roads.parquet` | 184 KB | lets `--no-fetch` skip `prepare_roads` |
+| `data/speed_roads.parquet` | 184 KB | all three are needed together, or `prepare_roads` |
+| `data/speed_segments.parquet` | 32 KB | reruns and overwrites them (harmless, just slow) |
+| `data/speed_road_network.graphml` | 4.5 MB | |
 | `data/dense_80pct_segments.csv` | 8 KB | only for `--only-80-percent`, which we do not use |
 
 Check after copying:
@@ -109,6 +111,11 @@ uv run python scripts/midpoint.py \
 `--processed data/processed-expanded` is **required**. Its default is
 `data/processed`, which holds the frozen pilot tables; the script now refuses to
 overwrite them, so leaving it off produces an error rather than silent damage.
+
+**On a retry**, that same guard will stop you, because the first attempt already
+wrote the tables. Add `--overwrite-processed`, and use a fresh `--out`: the
+script also refuses to write into a directory that already holds a
+`summary.json`, so last run's CSVs can never sit beside this run's JSON.
 
 This trains seven models (`persistence`, `historical_mean`, `mlp`, `gcn`, `sage`,
 `tgru`, `stgcn`), estimates crash-segment effects against matched controls, and
@@ -177,7 +184,12 @@ uv run python scripts/midpoint.py \
 ```
 
 It reads the already-joined tables, so it does not touch `--processed` and cannot
-disturb step 5. Same output files as step 5, in `outputs/expanded-nozero/`.
+disturb step 5. It writes to `outputs/expanded-nozero/`.
+
+Expect **13 files, not 14**: `coverage_funnel.csv` is only written when
+`--crashes` is given, and the `--data` path has no crash audit CSV to build it
+from. `summary.json` records `"coverage_funnel": null`. That is correct, not a
+failed job.
 
 This flag changes more than the outcome: it also moves the model's inputs, the
 normalisation constants and two figures. `docs/experiments.md` records what, and
@@ -205,6 +217,13 @@ a crash after six hours of training usually says something about the data.
   results; stale files from a previous run read as current.
 - Do not change filtering, window or seed arguments to get better-looking
   numbers. If a count looks wrong, report it.
+- `--seed` will not redraw the controls. The control match is deterministic, so
+  repeating a run under a new seed gives the same control set and only moves the
+  model initialisation. To vary the control draw, use
+  `scripts/event_study.py --random-controls`.
+- `--device auto` falls back to CPU silently if CUDA is not visible on the node.
+  Every `summary.json` now records the device actually used; check it before
+  trusting a fast-looking run.
 - If a run fails or a number looks surprising, say so before running the next
   thing. Surprising counts usually mean a data problem, and running three more
   jobs on the same bad input wastes the cluster time.

@@ -311,21 +311,28 @@ def _recovery_row(frame: pd.DataFrame, group: str, value) -> dict:
     independent would shrink the interval by roughly the square root of that
     count. `events` is the sample size behind the interval, not `n`.
 
-    `effect_mae` and `effect_rmse` stay cell-level: they describe the size of
-    the error, not an estimate, so they carry no interval.
+    `true_mph`, `estimated_mph` and `bias_mph` are all event-weighted, so
+    `estimated_mph - true_mph == bias_mph` holds exactly. `effect_mae` and
+    `effect_rmse` stay cell-level: they describe the size of the error, not an
+    estimate, so they carry no interval and do not compose with the other three.
     """
     error = frame["estimated"] - frame["true_effect"]
     per_event = error.groupby(frame["event_id"]).mean()
     spread = float(per_event.sem()) if len(per_event) > 1 else float("nan")
     half = 1.96 * spread
     bias = float(per_event.mean())
+    # Event-weighted too, so the three compose: estimated_mph - true_mph is
+    # bias_mph exactly. Cell-weighting these while the bias was event-weighted
+    # made one row disagree with itself by up to 0.5 mph, which is the size of
+    # the effect being reported, because events carry 6 to 118 cells each.
+    by_event = frame.groupby("event_id")[["estimated", "true_effect"]].mean()
     return {
         "group": group,
         "value": value,
         "n": len(frame),
         "events": frame["event_id"].nunique(),
-        "true_mph": round(float(frame["true_effect"].mean()), 3),
-        "estimated_mph": round(float(frame["estimated"].mean()), 3),
+        "true_mph": round(float(by_event["true_effect"].mean()), 3),
+        "estimated_mph": round(float(by_event["estimated"].mean()), 3),
         "bias_mph": round(bias, 3),
         "bias_low": round(bias - half, 3) if np.isfinite(half) else None,
         "bias_high": round(bias + half, 3) if np.isfinite(half) else None,
@@ -633,7 +640,15 @@ def trajectory_figure(
     paired = events.merge(first_control, on="crash_record_id", suffixes=("", "_control"))
     if paired.empty:
         raise ValueError("no crash has a matched control to plot against")
-    complete = [np.isfinite(trace(r.origin, r.road)).all() for r in paired.itertuples()]
+    # Both arms, not just the crash arm. Holding only the crash window to this
+    # bar let a "complete" pair carry a gappy control, so the two lines were
+    # drawn from different samples and the gap between them moved by 0.08 mph
+    # -- the size of the effect the figure sits next to.
+    complete = [
+        np.isfinite(trace(r.origin, r.road)).all()
+        and np.isfinite(trace(r.origin_control, r.road)).all()
+        for r in paired.itertuples()
+    ]
     # Prefer crashes whose own window has no gaps; fall back rather than fail, since
     # on sparse coverage an unbroken 18-bin window can be genuinely rare.
     whole = paired.loc[complete].sort_values("crash_time")

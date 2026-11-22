@@ -56,8 +56,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--drop-zero-speed", action="store_true")
     parser.add_argument("--hops", type=int, default=2, help="rings to estimate effects on")
     parser.add_argument("--controls", type=int, default=5, help="controls per crash")
+    parser.add_argument(
+        "--random-controls",
+        action="store_true",
+        help="draw controls at random instead of matching on pre-event level and trend",
+    )
+    parser.add_argument(
+        "--match-hops",
+        type=int,
+        default=0,
+        help="match on the mean over this many hops instead of the crash road alone",
+    )
     parser.add_argument("--leads", type=int, default=3, help="pre-trend placebo bins")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="only draws controls with --random-controls; a matched draw is deterministic",
+    )
     args = parser.parse_args(argv)
     if args.data is None and not (args.speeds and args.graph and args.crashes):
         parser.error("pass --data, or all of --speeds, --graph and --crashes")
@@ -110,6 +126,9 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         controls=args.controls,
         seed=args.seed,
         held_out=False,
+        match_pre_event=not args.random_controls,
+        match_hops=args.match_hops,
+        edge_index=edge_index if args.match_hops else None,
     )
     events = table.rename(columns={"crash_record_id": "event_id"})
     control = controls.rename(columns={"crash_record_id": "event_id"})
@@ -120,11 +139,17 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
     available = summarise(did)
     cohort = fixed_cohort(did)
     overlapping = did["other_crash"].mean()
+    dropped = did.attrs.get("dropped_by_hop", {})
     print(
         f"{len(did):,} estimated cells over {did.event_id.nunique():,} events; "
         f"{overlapping:.1%} carry a second reported crash; "
         f"fixed cohort keeps {cohort.event_id.nunique():,} events"
     )
+    if dropped:
+        # Hop-dependent, so the distance profile is read across slightly
+        # different samples per ring unless this is reported with it.
+        shown = "  ".join(f"hop {h}: {n:,}" for h, n in sorted(dropped.items()))
+        print(f"  crash cells dropped for want of a surviving control -- {shown}")
 
     tables_out = {
         "effect_by_hop": available,
@@ -179,6 +204,10 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
                 "cells": int(len(did)),
                 "controls_per_event": round(len(control) / max(len(events), 1), 2),
                 "share_with_second_crash": round(float(overlapping), 4),
+                "dropped_for_no_control_by_hop": {str(k): int(v) for k, v in dropped.items()},
+                "control_matching": (
+                    "random" if args.random_controls else f"pre-event, {args.match_hops} hops"
+                ),
                 "fixed_cohort_events": int(cohort.event_id.nunique()) if len(cohort) else 0,
                 "effect_by_hop": available.to_dict("records"),
                 "effect_against_placebo": checked.to_dict("records"),

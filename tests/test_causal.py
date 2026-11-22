@@ -121,9 +121,12 @@ def test_against_placebo_divides_the_right_way_round():
     # The row whose placebo nearly equals its effect is the one to catch.
     assert out.loc[1, "placebo_share"] == pytest.approx(0.90)
     assert out.loc[1, "placebo"] == pytest.approx(-0.18)
-    # A zero effect must not raise or report a ratio.
+    # An effect that rounds to zero beside a real placebo is the most
+    # unidentified row there is, so it must report `inf` and sort to the top,
+    # not go blank. Blank rows were skipped by the script's `idxmax` warning.
     zeroed = against_placebo(effect.assign(effect=[0.0, -0.2]), placebo)
-    assert pd.isna(zeroed["placebo_share"].iloc[0])
+    assert np.isinf(zeroed["placebo_share"].iloc[0])
+    assert zeroed["placebo_share"].idxmax() == 0
 
 
 def test_intervals_are_event_clustered_not_cell_counted():
