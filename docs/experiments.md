@@ -30,6 +30,7 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | Event placement | `uniform` | `--placement` |
 | Event-study rings | 2, must not exceed `--exposure-hops` | `event_study.py --hops` |
 | Event-study controls | 5 per crash, held-out rule waived | `event_study.py --controls` |
+| Control matching | pre-event level and trend | `match_pre_event` |
 | Pre-trend placebo | 3 lead bins | `--leads` |
 
 Conventions that are not flags:
@@ -132,6 +133,26 @@ Sample: 2,720 events, 12,827 control pairs, 879 roads, 146,007 estimated cells
 over 2,713 events. 0.6% of cells carry a second reported crash on the same road
 inside the window. The fixed cohort — events observed at every hop and step — is
 671 of 2,713 (24.7%), and most of its rows stop excluding zero.
+
+Controls are matched on pre-event speed level and trend rather than drawn at
+random. That was done to close the pre-event divergence above, and it half
+worked. On the crash road it worked well: the placebo at 10 minutes falls from
+-0.069 to -0.012 and its share of the effect from 0.27 to **0.06**, so the
+direct effect is cleanly identified. The cost is attenuation at the earliest
+bins, where the 10- and 20-minute rows now span zero; the effect survives at 30
+to 60 minutes at -0.30 to -0.57 mph.
+
+It did **not** rescue the spillover. At 1 hop the placebo share rises from 0.66
+to **1.59**, so the placebo is now larger than the effect. The reason is
+mechanical: matching is computed on the **crash road's** pre-event state, and
+the 1- and 2-hop effects are measured on neighbour roads whose pre-event state
+nothing matches on. Matching the neighbourhood rather than the crash road is
+the obvious next step and is not implemented.
+
+The old random draw is kept as `match_pre_event=False` for the matching-rule
+sensitivity check PR #10 asks for. It is not the default, and it should not be
+chosen because it makes an effect larger: it gives a bigger 1-hop number and a
+worse placebo.
 
 Known limits of this table, beyond the placebo: the road and control sets vary
 step by step, so a time profile is read across changing populations; the

@@ -134,6 +134,32 @@ def fitted_cells(reference: Windows) -> np.ndarray:
     return trained
 
 
+def pre_event_stats(values: np.ndarray, history: int) -> tuple[np.ndarray, np.ndarray]:
+    """Mean speed over the `history` bins ending at each bin, and its trend.
+
+    `[bins, roads]` each, NaN where nothing was observed. The trend is the
+    second half's mean minus the first half's, which is enough to tell a road
+    that was already slowing from one holding steady. Computed once over the
+    whole grid with cumulative sums, because matching needs it for every
+    candidate control bin.
+    """
+    bins = values.shape[0]
+    finite = np.isfinite(values)
+    total = np.vstack([np.zeros((1, values.shape[1])), np.cumsum(np.where(finite, values, 0.0), 0)])
+    count = np.vstack([np.zeros((1, values.shape[1])), np.cumsum(finite, 0)])
+
+    def mean(width: int, back: int) -> np.ndarray:
+        high = np.clip(np.arange(bins) + 1 - back, 0, bins)
+        low = np.clip(high - width, 0, bins)
+        seen = count[high] - count[low]
+        return np.divide(
+            total[high] - total[low], seen, out=np.full_like(total[high], np.nan), where=seen > 0
+        )
+
+    half = history // 2
+    return mean(history, 0), mean(half, 0) - mean(history - half, half)
+
+
 def event_datasets(
     reference: Windows,
     crashes: pd.DataFrame,
@@ -141,12 +167,22 @@ def event_datasets(
     controls: int = 1,
     seed: int = 0,
     held_out: bool = True,
+    match_pre_event: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, Windows, Windows]:
     """Before/after windows for each matched crash, plus accident-free controls.
 
     The event origin is the last bin before the crash, so `x` is entirely
     pre-crash and `y` spans the crash itself. Only the crash's own road is
     unmasked, so a window scores that road and nothing else.
+
+    `match_pre_event` picks the eligible controls whose pre-crash speed level
+    and trend are closest to the crash's own, instead of drawing at random.
+    Both differences are scaled by their spread across the grid so neither
+    dominates. Random draws left the arms differing by -0.179 mph in pre-event
+    trend on the frozen data, which is larger than the 1-hop effect being
+    measured, so the matched estimate could not be separated from arms that
+    were already diverging. Set it False to recover the old draw for a
+    matching-rule sensitivity check.
 
     `held_out` keeps a control out of the cells the forecaster was fitted on.
     That is required for a model-based estimate and meaningless without a
@@ -191,6 +227,10 @@ def event_datasets(
 
     bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)
+    level, trend = pre_event_stats(values, history)
+    # Scale each difference by its own spread, or the ~25 mph level would swamp
+    # the ~0.1 mph trend and the match would ignore the trend entirely.
+    spread = [max(float(np.nanstd(stat)), 1e-6) for stat in (level, trend)]
 
     events, pairs, seen = [], [], set()
     for record, crash_bin, road, known in zip(
@@ -225,9 +265,19 @@ def event_datasets(
             "road": int(road),
         }
         events.append({**shared, "crash_time": times[int(crash_bin)], "origin": origin})
-        chosen = rng.choice(
-            usable_controls, size=min(controls, len(usable_controls)), replace=False
-        )
+        if match_pre_event:
+            candidates = np.array(usable_controls)
+            gap = sum(
+                np.abs(stat[candidates, road] - stat[origin, road]) / scale
+                for stat, scale in zip((level, trend), spread, strict=True)
+            )
+            # NaN gaps sort last, so a candidate with no observed history is a
+            # last resort rather than a silent favourite.
+            chosen = candidates[np.argsort(gap, kind="stable")[:controls]]
+        else:
+            chosen = rng.choice(
+                usable_controls, size=min(controls, len(usable_controls)), replace=False
+            )
         pairs += [{**shared, "origin": int(t)} for t in np.atleast_1d(chosen)]
 
     table, control_table = pd.DataFrame(events), pd.DataFrame(pairs)
