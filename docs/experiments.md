@@ -165,6 +165,31 @@ the 1- and 2-hop effects are measured on neighbour roads whose pre-event state
 nothing matches on. Matching the neighbourhood rather than the crash road is
 the obvious next step and is not implemented.
 
+Matching the **neighbourhood** instead of the crash road was tried next, since
+the hop effects are measured on neighbour roads. `match_hops` widens the match
+to the mean pre-event level and trend over a road's k-hop neighbourhood. It
+moves the problem around and does not solve it. Placebo share at 10 minutes,
+same 2,720 events throughout, only the control draw changes:
+
+| matched on | hop 0 | hop 1 | hop 2 |
+| --- | ---: | ---: | ---: |
+| crash road (default) | **0.06** | 1.59 | 0.68 |
+| 1-hop neighbourhood | 0.31 | 1.37 | 0.82 |
+| 2-hop neighbourhood | 0.24 | 0.73 | 0.60 |
+
+**No specification brings a spillover row under 0.6**, and the one that helps
+the spillover most is the one that spoils the direct effect. Widening the match
+trades balance on the crash road for balance on its neighbours, because a
+single control week cannot be closest to the crash road and to thirty other
+roads at once. The default stays `match_hops=0`: it gives the cleanest estimate
+of the effect that *is* reportable, and the wider settings are kept as the
+sensitivity check rather than as a better answer.
+
+Read together, these three rows are the evidence for the negative result. The
+1- and 2-hop differences are not shown to be crash effects under any matching
+rule tried, and the reason is not sample size: every row above rests on the
+same 2,720 events.
+
 The old random draw is kept as `match_pre_event=False` for the matching-rule
 sensitivity check PR #10 asks for. It is not the default, and it should not be
 chosen because it makes an effect larger: it gives a bigger 1-hop number and a

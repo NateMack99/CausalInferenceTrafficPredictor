@@ -13,6 +13,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as pds
 import pytest
+import scipy.sparse as sp
 import torch
 
 from traffic_gml.data import FREQ
@@ -29,6 +30,7 @@ from traffic_gml.events import (
     event_datasets,
     pre_event_stats,
     processed_tables,
+    smooth_over_neighbourhood,
 )
 from traffic_gml.mock import make_mock
 from traffic_gml.models import build_model
@@ -333,3 +335,32 @@ def test_matched_controls_sit_closer_in_pre_event_level_and_trend(events):
     first, _, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=1)
     second, _, _, _ = event_datasets(train, tables["crashes"], ids, controls=3, seed=2)
     pd.testing.assert_frame_equal(first, second)
+
+
+def test_neighbourhood_smoothing_averages_only_observed_roads():
+    """Hand-built. A road with half its neighbours missing must get the mean of
+    the half that reported, not a zero-filled average."""
+    stat = np.array([[10.0, 20.0, np.nan]])
+    # Road 0 neighbours {0,1}, road 1 all three, road 2 itself.
+    reach = sp.csr_matrix(np.array([[1, 1, 0], [1, 1, 1], [0, 0, 1]], dtype=bool))
+    out = smooth_over_neighbourhood(stat, reach)
+
+    assert out[0, 0] == pytest.approx(15.0)
+    assert out[0, 1] == pytest.approx(15.0), "the NaN neighbour is left out, not counted as 0"
+    assert np.isnan(out[0, 2]), "no observed road in the neighbourhood means no statistic"
+
+
+def test_matching_hops_needs_a_graph(events):
+    tables, sets, edge_index, _, _, _, _ = events
+    ids = np.sort(tables["segments"].segment_id.unique())
+    with pytest.raises(ValueError, match="edge_index"):
+        event_datasets(sets["train"], tables["crashes"], ids, match_hops=2)
+    # With one, the wider match changes which controls are drawn.
+    narrow, _, _, _ = event_datasets(
+        sets["train"], tables["crashes"], ids, controls=3, edge_index=edge_index
+    )
+    wide, _, w_controls, _ = event_datasets(
+        sets["train"], tables["crashes"], ids, controls=3, match_hops=2, edge_index=edge_index
+    )
+    assert len(narrow) == len(wide), "matching changes the draw, never the eligible sample"
+    assert len(w_controls)

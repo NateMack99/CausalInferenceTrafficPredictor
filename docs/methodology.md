@@ -90,6 +90,9 @@ PR #3 plus `scripts/midpoint.py`:
   estimate. `docs/experiments.md` records the numbers. **The spillover rows are therefore
   not evidence that congestion spreads**, and `causal.against_placebo` exists so that
   ratio is printed beside the effect rather than sitting in a second table nobody opens.
+  Three matching rules were tried (crash road, 1-hop and 2-hop neighbourhood) and none
+  brings a spillover row's placebo share under 0.6 on the same 2,720 events, so the null
+  is a property of the design and the data rather than of one specification.
 - A nested coverage funnel ending at the analysis sample, and per-hop neighbour
   observability for that sample (`evaluate.coverage_funnel`, `evaluate.neighbour_coverage`).
   The funnel's stricter rows sit *inside* the analysis sample: requiring every bin observed

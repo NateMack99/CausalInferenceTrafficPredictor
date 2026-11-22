@@ -160,6 +160,20 @@ def pre_event_stats(values: np.ndarray, history: int) -> tuple[np.ndarray, np.nd
     return mean(history, 0), mean(half, 0) - mean(history - half, half)
 
 
+def smooth_over_neighbourhood(stat: np.ndarray, reach: sp.csr_matrix) -> np.ndarray:
+    """Mean of a `[bins, roads]` statistic over each road's neighbourhood.
+
+    Unobserved cells are left out of the average rather than counted as zero,
+    so a road with half its neighbours missing still gets the mean of the half
+    that reported.
+    """
+    finite = np.isfinite(stat)
+    weights = reach.astype(stat.dtype)
+    total = np.where(finite, stat, 0.0) @ weights.T
+    count = finite.astype(stat.dtype) @ weights.T
+    return np.divide(total, count, out=np.full_like(total, np.nan), where=count > 0)
+
+
 def event_datasets(
     reference: Windows,
     crashes: pd.DataFrame,
@@ -168,6 +182,8 @@ def event_datasets(
     seed: int = 0,
     held_out: bool = True,
     match_pre_event: bool = True,
+    match_hops: int = 0,
+    edge_index: Tensor | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, Windows, Windows]:
     """Before/after windows for each matched crash, plus accident-free controls.
 
@@ -183,6 +199,11 @@ def event_datasets(
     measured, so the matched estimate could not be separated from arms that
     were already diverging. Set it False to recover the old draw for a
     matching-rule sensitivity check.
+
+    `match_hops` widens what is matched on from the crash road to the mean over
+    its `match_hops`-hop neighbourhood, and needs `edge_index`. Matching the
+    crash road alone balances the arm the direct effect is measured on and
+    leaves the neighbour roads, where the hop effects are measured, unmatched.
 
     `held_out` keeps a control out of the cells the forecaster was fitted on.
     That is required for a model-based estimate and meaningless without a
@@ -228,6 +249,11 @@ def event_datasets(
     bins, roads, on_grid = crash_index(crashes, times, segment_ids)
     rng = np.random.default_rng(seed)
     level, trend = pre_event_stats(values, history)
+    if match_hops:
+        if edge_index is None:
+            raise ValueError("match_hops needs edge_index to build the neighbourhood")
+        reach = neighbourhood(edge_index, len(segment_ids), match_hops)
+        level, trend = (smooth_over_neighbourhood(s, reach) for s in (level, trend))
     # Scale each difference by its own spread, or the ~25 mph level would swamp
     # the ~0.1 mph trend and the match would ignore the trend entirely.
     spread = [max(float(np.nanstd(stat)), 1e-6) for stat in (level, trend)]
