@@ -222,12 +222,17 @@ def against_placebo(effect: pd.DataFrame, placebo: pd.DataFrame) -> pd.DataFrame
     comparable size is not evidence of a crash effect -- it is evidence the
     arms were already diverging.
 
-    `placebo_share` is `|placebo| / |effect|`. On the frozen March-April data
-    the direct effect sits near 20% and the 1- and 2-hop effects near 60%, so
-    the spillover rows there are **not** reportable as crash effects. Treat
-    anything above roughly a third as unresolved, and read the share together
-    with the interval: an effect whose interval already spans zero is not
-    rescued by a small placebo.
+    `placebo_share` is the ratio `|placebo| / |effect|` and nothing more. It is
+    unbounded, exceeds 1 whenever the placebo is larger than the estimate, and
+    is **not** a probability or a p-value; do not report it as one. On the
+    frozen March-April data the direct effect sits near 0.06 and the 1- and
+    2-hop effects above 0.6, so the spillover rows are not reportable as crash
+    effects there. Treat anything above roughly a third as unresolved, and read
+    the share together with the interval: an effect whose interval already
+    spans zero is not rescued by a small placebo.
+
+    A large share means the estimate cannot be separated from pre-existing
+    divergence. It does **not** mean the effect is zero.
 
     Rows are the horizon steps the placebo covers, which is `--leads` of them,
     so this is a check on the early horizon and not the whole profile.

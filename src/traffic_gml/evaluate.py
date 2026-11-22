@@ -303,7 +303,22 @@ def control_corrected(
 
 
 def _recovery_row(frame: pd.DataFrame, group: str, value) -> dict:
+    """One recovery row, with an event-clustered interval on the bias.
+
+    `bias_mph` is averaged within each event before averaging across events,
+    and the interval comes from the spread across events. Cells inside one
+    event are correlated and there are many of them, so treating them as
+    independent would shrink the interval by roughly the square root of that
+    count. `events` is the sample size behind the interval, not `n`.
+
+    `effect_mae` and `effect_rmse` stay cell-level: they describe the size of
+    the error, not an estimate, so they carry no interval.
+    """
     error = frame["estimated"] - frame["true_effect"]
+    per_event = error.groupby(frame["event_id"]).mean()
+    spread = float(per_event.sem()) if len(per_event) > 1 else float("nan")
+    half = 1.96 * spread
+    bias = float(per_event.mean())
     return {
         "group": group,
         "value": value,
@@ -311,7 +326,9 @@ def _recovery_row(frame: pd.DataFrame, group: str, value) -> dict:
         "events": frame["event_id"].nunique(),
         "true_mph": round(float(frame["true_effect"].mean()), 3),
         "estimated_mph": round(float(frame["estimated"].mean()), 3),
-        "bias_mph": round(float(error.mean()), 3),
+        "bias_mph": round(bias, 3),
+        "bias_low": round(bias - half, 3) if np.isfinite(half) else None,
+        "bias_high": round(bias + half, 3) if np.isfinite(half) else None,
         "effect_mae": round(float(error.abs().mean()), 3),
         "effect_rmse": round(float(np.sqrt((error**2).mean())), 3),
     }
@@ -325,6 +342,11 @@ def effect_recovery(estimate: pd.DataFrame, truth: pd.DataFrame) -> pd.DataFrame
     horizon step, because a pooled number hides whether the spatial and time
     profiles were recovered at all — which is the question the benchmark
     exists to answer.
+
+    The bias carries an event-clustered 95% interval, so a recovery that merely
+    looks close can be told from one that is close beyond the spread across
+    events. An interval spanning zero means the estimator is unbiased at that
+    hop and step as far as this benchmark can tell.
 
     This is **effect** error and is not forecast error. `AGENTS.md` requires
     the two to be reported separately, and a model can win one while losing

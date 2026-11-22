@@ -190,7 +190,9 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         by_hop = "  ".join(f"h{int(r.value)} {r.effect_mae:5.3f}" for r in hops.itertuples())
         print(
             f"{name:16s} forecast MAE {forecast[name]['mae']:6.3f} mph   "
-            f"effect MAE pooled {pooled.effect_mae:6.3f}  bias {pooled.bias_mph:+.3f}   {by_hop}"
+            f"effect MAE pooled {pooled.effect_mae:6.3f}  "
+            f"bias {pooled.bias_mph:+.3f} [{pooled.bias_low:+.3f}, {pooled.bias_high:+.3f}]"
+            f"   {by_hop}"
         )
 
     recovery = pd.concat(recovery, ignore_index=True)
