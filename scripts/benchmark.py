@@ -146,7 +146,7 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
 
     recovery, forecast = [], {}
     for name in args.models:
-        # Re-seed per model, as `scripts/midpoint.py` does. Seeding once would
+        # Re-seed per model, as `scripts/experiment.py` does. Seeding once would
         # leave each model's initialisation and shuffling dependent on what ran
         # before it, so `--models gcn` and the full list would disagree and the
         # recorded seed would reproduce neither.

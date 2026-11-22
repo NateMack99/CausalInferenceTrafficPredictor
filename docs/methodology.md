@@ -34,7 +34,7 @@ separately.
 
 ## What is implemented
 
-PR #3 plus `scripts/midpoint.py`:
+PR #3 plus `scripts/experiment.py`:
 
 - Forecasters `persistence`, `historical_mean`, `mlp`, `gcn`, `sage` (`models.py`), all
   trained on identical splits with the same seed. `mlp` is `gcn` without edges, so that

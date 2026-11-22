@@ -4,7 +4,7 @@ Joins the speed, crash and road-graph outputs into the model contract, trains
 every model on identical splits, estimates crash effects against matched
 accident-free controls, and writes figures plus a results table.
 
-    uv run python scripts/midpoint.py --speeds data/parquet/chicago-speeds \
+    uv run python scripts/experiment.py --speeds data/parquet/chicago-speeds \
         --graph outputs/<stem>_segments.graphml \
         --crashes outputs/<stem>_crash_segments.csv \
         --window 2025-03-01 2025-05-01
@@ -167,7 +167,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     source.add_argument("--crashes", type=Path, help="*_crash_segments.csv beside it")
     source.add_argument("--window", nargs=2, metavar=("START", "END"), help="naive local bounds")
 
-    parser.add_argument("--out", type=Path, default=Path("outputs/midpoint"))
+    parser.add_argument("--out", type=Path, default=Path("outputs/run"))
     parser.add_argument("--processed", type=Path, default=Path("data/processed"))
     parser.add_argument(
         "--overwrite-processed",

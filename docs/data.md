@@ -23,6 +23,76 @@ These bound the study period and the study area; check them before choosing eith
   [Coverage subsets and map previews](#coverage-subsets-and-map-previews)) instead of
   assuming the whole city.
 
+## Which speed dataset to use
+
+The portal splits one segment-level series across three datasets. Checked
+2026-11-22 against the Socrata metadata and per-day samples:
+
+| Dataset | Real bulk span | Rows | Verdict |
+|---|---|---:|---|
+| [`4g9f-3jbs`](https://data.cityofchicago.org/d/4g9f-3jbs) | 2024-06-11 to 2026-04-30 | 101.1M | **Primary** (run A). |
+| [`sxs8-h27x`](https://data.cityofchicago.org/d/sxs8-h27x) | 2018-02-28 to 2023-09-06 | 274.9M | **Secondary** (run B). |
+| [`77hq-huss`](https://data.cityofchicago.org/d/77hq-huss) | 2011-08-02 to 2018-05-03 | 19.6M | **Rejected**, see below. |
+
+Row counts are `count(*)` from the portal. Do not use the column metadata's
+`non_null`: it understates `4g9f-3jbs` as 86.9M because that archive was still
+being appended to when the cache was built. `sxs8-h27x`, static since 2025,
+matches.
+
+Those are the spans of the *bulk* data and are not what the dataset titles or
+the `min(time)`/`max(time)` metadata report. Each modern archive carries one
+stray 1047-row snapshot outside its real coverage, on 2023-09-08 and
+2024-03-05, which makes the published extremes look nine months wider than the
+data actually is. `sxs8-h27x` really stops on 2023-09-06 (a part day), and
+`4g9f-3jbs` really starts at 2024-06-11T13:01. Requesting the metadata range
+returns nine months of empty results; `scripts/fetch_speeds_history.sh` encodes
+the verified spans instead.
+
+`sxs8-h27x` is a true continuation, not a parallel series: same `time` /
+`segment_id` / `speed` columns, same `-1` missing sentinel, and the same **1047
+segment IDs with byte-identical geometry** (street, from/to, heading, length,
+start coordinate) as the era we use. Observed-bin coverage holds at 55-70% from
+2018 to 2026 with no drift, so the graph and `speed_roads.parquet` carry over
+unchanged. Its three extra `:@computed_region_*` columns are not selected.
+
+Outages are the one thing to check before using a sub-window of it. A full month
+runs about 4.5M rows; June 2021 holds 2.53M, so roughly 44% of that month is
+gone, including whole days such as 2021-06-09, and March 2021 is down about 19%.
+Every other month sampled from 2018 to 2023 is within normal range. Missing bins
+arrive as NaN and fail the usual eligibility screen, so they cost sample size
+rather than correctness, but do not read a monthly series across June 2021.
+
+`77hq-huss` is rejected on three counts: a different schema (`last_update` and
+`traffic`, no `speed`, no geometry or street names); **2015, 2016 and 2017 are
+absent entirely** (rows land only in 2013, 2014 and 2018, with 2011-2012 a
+rounding error); and its substantive years predate citywide crash reporting, so
+there is almost nothing to pair speeds with.
+
+Two further limits bound any expansion:
+
+- **A nine-month hole**, 2023-09-07 to 2024-06-10, that no segment-level
+  dataset covers. The portal's other Traffic Tracker datasets are region-level.
+  The two archives are therefore analysed as separate runs rather than one
+  panel, so no event window straddles it.
+- **Crash history effectively starts in 2018.** Chicago's crash table runs from
+  2013 but reaches citywide coverage only as the e-crash rollout completes:
+  2 rows in 2013, 6 in 2014, 9,834 in 2015, 44,297 in 2016, 83,786 in 2017, then
+  110-119k a year from 2018. Pre-2018 speeds have no usable crash sample.
+
+So the usable total is 7.4 years of actual observation, 361.8M speed rows,
+split 5.52 years before the hole and 1.88 years after it. `docs/hpc-run.md`
+section 4 carries the run plan, the per-run memory requests and the staging
+commands.
+
+**A single request truncates silently.** `scripts/fetch_data.sh` asks for
+`$limit=50000000` in one CSV, and calendar 2025 alone holds 53.6M rows, so the
+extract we first built stops mid-December with no error; `_conversion.json`
+records the round `"rows": 50000000` as the only clue. Use
+`scripts/fetch_speeds_history.sh START END` for anything wider: it fetches one
+month per request, reuses months already on disk, skips the hole, and selects
+the archive per month. Check `_conversion.json` afterwards and treat a round
+50,000,000 as a truncated extract.
+
 ## Conventions
 
 - Use one stable road-segment ID across speed data, graph nodes, and crashes.

@@ -32,10 +32,14 @@ curl --fail --show-error --compressed --retry 3 --retry-delay 5 --retry-all-erro
   --output chicago-speeds.csv
 "$FETCH_PYTHON" "$SCRIPT_DIR/convert_to_parquet.py" chicago-speeds.csv --kind speeds --overwrite
 fi
+# Window defaults to the pilot year; override for another run, e.g.
+# CRASH_START=2024-06-11 CRASH_END=2026-05-01 bash scripts/fetch_data.sh --crashes-only
+CRASH_START="${CRASH_START:-2025-01-01}"
+CRASH_END="${CRASH_END:-2026-01-01}"
 curl --fail --show-error --compressed --retry 3 --retry-delay 5 --retry-all-errors \
   ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} \
   --output chicago-crashes.csv \
-  'https://data.cityofchicago.org/resource/85ca-t3if.csv?$limit=50000000&$select=crash_record_id%2Ccrash_date%2Ccrash_type%2Cdamage%2Cstreet_no%2Cstreet_direction%2Cstreet_name%2Clatitude%2Clongitude&$where=crash_date%20between%20%272025-01-01T00%3A00%3A00%27%20and%20%272026-01-01T00%3A00%3A00%27'
+  "https://data.cityofchicago.org/resource/85ca-t3if.csv?\$limit=50000000&\$select=crash_record_id%2Ccrash_date%2Ccrash_type%2Cdamage%2Cstreet_no%2Cstreet_direction%2Cstreet_name%2Clatitude%2Clongitude&\$where=crash_date%20%3E=%20%27${CRASH_START}T00%3A00%3A00%27%20AND%20crash_date%20%3C%20%27${CRASH_END}T00%3A00%3A00%27"
 "$FETCH_PYTHON" "$SCRIPT_DIR/convert_to_parquet.py" chicago-crashes.csv --kind crashes --overwrite
 if [[ "${1:-}" != "--crashes-only" ]]; then
     curl --fail --show-error --compressed --retry 3 --retry-delay 5 --retry-all-errors \

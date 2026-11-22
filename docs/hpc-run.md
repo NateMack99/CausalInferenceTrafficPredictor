@@ -1,229 +1,175 @@
 # HPC run handoff
 
-Everything needed to run the expanded-window experiments on Rivanna and send the
-results back. Written for whoever operates the cluster; no knowledge of the
-modelling code is assumed. Commands are copy-paste ready.
+Final-results runs on Rivanna. Everything happens on the cluster except one
+46 MB copy of the road-network files. Replace `CHANGE_ME` before use.
 
-The frozen March–April pilot lives in `outputs/midpoint/` and `data/processed/`.
-**Nothing here writes to either.** If a command ever asks to, stop.
+## The plan
 
-## 1. Code
+Two published archives, each its own run. Submit A first; do not block it on B.
+
+| Run | Window | Speed rows | `--mem` | `--time` |
+| --- | --- | ---: | ---: | ---: |
+| **A** required | `2024-06-11 2026-05-01` | 101.1M | 48G | 18:00:00 |
+| **B** secondary | `2018-02-28 2023-09-07` | 274.9M | 128G | 36:00:00 |
+
+Both windows are `[start, end)`, so run B's `2023-09-07` includes all of
+2023-09-06, the archive's last day. Each window spans its whole archive: the
+counts above are `count(*)` from the portal, not the column metadata, which
+understates `4g9f-3jbs` by 16% because that archive was still being appended to
+when the cache was built.
+
+Run A opens mid-month on purpose, because the archive itself starts at
+2024-06-11T13:01. That does not distort the monthly report:
+`evaluate.monthly_coverage` emits a `bins` column per month and computes
+`observed_pct` against that month's own bins, so a short month is visible
+rather than misleading. Trimming to whole interior months would drop about 7%
+of the window to tidy a diagnostic table.
+
+A nine-month hole (2023-09-07 to 2024-06-10) separates the archives, so they
+stay in separate runs and no event window straddles it. `docs/data.md` has the
+details. Memory is the usual failure: `data.align_grid` is row-count driven and
+runs before any GPU work, so an under-requested job dies in the first minutes.
+
+## 1. Code and environment
 
 ```bash
-git checkout main
-git pull
-git rev-parse --short HEAD    # record this; it goes in the results you send back
+cd CHANGE_ME_PROJECT_DIR
+git checkout main && git pull
+git rev-parse --short HEAD          # record this; it ships with the results
+uv venv --python 3.12 .venv && uv sync --locked
+mkdir -p logs            # Slurm opens the log file before the job runs
 ```
 
-Run from a commit on `main`. Do not run from a feature branch: `main` is the only
-branch with the input-masking fix, the spatiotemporal models and the benchmark
-all present together.
+Then set your allocation in both job files, replacing `CHANGE_ME` on the
+`#SBATCH --account=` line of `slurm/fetch.slurm` and `slurm/experiment.slurm`.
+A job submitted without it is rejected immediately.
 
-## 2. Environment and CUDA
+## 2. Copy the road network from Kyle
+
+Four reference files plus the segment geometry, 46 MB total. These are the only
+inputs that cannot be downloaded, because regenerating them would change the
+road network out from under the frozen pilot.
 
 ```bash
-uv venv --python 3.12 .venv
-uv sync --locked
-uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+# from Kyle's machine
+scp data/chicago_road_network.graphml data/speed_road_network.graphml \
+    data/speed_roads.parquet data/speed_segments.parquet \
+    data/chicago-traffic-segments.json \
+    CHANGE_ME_USER@rivanna:CHANGE_ME_PROJECT_DIR/data/
 ```
 
-The lockfile resolves CUDA wheels on Linux automatically; no extra index is
-needed. If `cuda.is_available()` is `False`, stop and report it rather than
-running on CPU: a full run is roughly nine hours of CPU time.
-
-Then confirm the code itself works before queueing anything long:
+Verify on the cluster. This either prints five `OK` lines or names the bad file:
 
 ```bash
-uv run ruff check . && uv run pytest -q          # expect 68 passed
+shasum -a 256 -c <<'EOF'
+08cd229161a9efd196bab5d9abf5c98a90d624aea723e1c7b1dc2106643e8f1e  data/chicago_road_network.graphml
+9798972d9cc099de3417d30e8ce73e036c5da852365c180ac440e5171cf0da6b  data/speed_road_network.graphml
+47bc6f99e0bbe3ab63083d316418662a0f3fe3066aadab0accf3c58cae79ec10  data/speed_roads.parquet
+bc4925f48a1f6d63244f0e1758d9dbd133822112eb5ce7a8fefbfa9e918baaf9  data/speed_segments.parquet
+ebd729ace619bbea1d276ffcf7603de993da415e3fad4c208fd0ddd9afe9c696  data/chicago-traffic-segments.json
+EOF
+```
+
+## 3. Stage the data
+
+```bash
+sbatch --export=ALL,START=2024-06-11,END=2026-05-01 slurm/fetch.slurm
+```
+
+Speeds come down one month per request and crashes in one; a rerun reuses
+months already on disk, so a timed-out job can just be resubmitted. The
+intermediate CSV is about 3.5 GB for run A and 9 GB for run B and can be
+deleted afterwards. If the portal rate-limits, put a Socrata app token in `data/.env` as
+`CHICAGO_DATA_APP_TOKEN=...` and resubmit; it is not required.
+
+When it finishes, `rows` in the printed manifest must **not** be exactly
+50,000,000. That is the old single-request cap and means a truncated extract.
+
+## 4. Check before submitting
+
+On the login node:
+
+```bash
+uv run python -c "
+import pandas as pd; r = pd.read_parquet('data/speed_roads.parquet')
+print(len(r), 'edges;', r.segment_id.nunique(), 'segments')"   # expect 6249 edges; 881 segments
+
+uv run ruff check . && uv run pytest -q                        # expect 69 passed
+```
+
+Then the GPU smoke test, which only proves anything **inside an allocation**:
+
+```bash
+salloc -A CHANGE_ME_ALLOCATION -p gpu --gres=gpu:1 -c 4 --mem=16G -t 00:30:00
 uv run python -m traffic_gml.mock --out data/mock
 uv run python -m traffic_gml.train --data data/mock --model stgcn --epochs 2 --device auto
+exit
 ```
 
-The last command is the GPU smoke test. Record the device line it prints.
+Record the device line it prints. `--device auto` falls back to CPU silently, so
+a run that prints `cpu` here means the allocation has no visible GPU. Stop on
+any failure rather than submitting. The job itself asserts CUDA before doing
+any work, so a misallocated run fails fast rather than quietly taking days.
 
-## 3. Data to copy
-
-These are gitignored, so they must be copied from Kyle's machine into the same
-relative paths:
-
-| Path | Size | Needed for |
-| --- | ---: | --- |
-| `data/parquet/chicago-speeds/` | 91 MB | everything (338 `date=` partitions, 2025-01-01 to 2025-12-06) |
-| `data/parquet/chicago-crashes/` | included above | the graph build |
-| `data/chicago_road_network.graphml` | 41 MB | the road graph |
-| `data/chicago-traffic-segments.json` | 372 KB | segment geometry |
-| `data/speed_roads.parquet` | 184 KB | all three are needed together, or `prepare_roads` |
-| `data/speed_segments.parquet` | 32 KB | reruns and overwrites them (harmless, just slow) |
-| `data/speed_road_network.graphml` | 4.5 MB | |
-| `data/dense_80pct_segments.csv` | 8 KB | only for `--only-80-percent`, which we do not use |
-
-Check after copying:
+## 5. Submit
 
 ```bash
-ls data/parquet/chicago-speeds | grep -c '^date='     # expect 338
+sbatch --mem=48G --time=18:00:00 \
+  --export=ALL,RUN=runA,START=2024-06-11,END=2026-05-01 slurm/experiment.slurm
 ```
 
-## 4. Build the graph for the expanded window
+One job runs the whole chain: graph, forecasting and effects, event study,
+semi-synthetic benchmark, zero-speed sensitivity.
 
 ```bash
-uv run python scripts/build_graph.py --no-fetch \
-    --crash-window 2025-01-01 2025-12-01 \
-    --speed-window 2025-01-01 2025-12-01
+squeue -u $USER
+tail -f logs/traffic-CHANGE_ME_JOBID.out
+sacct -j CHANGE_ME_JOBID --format=JobID,State,Elapsed,MaxRSS,ReqMem
 ```
 
-The window stops at December 1 because the feed only reaches December 6, and a
-partial month distorts the monthly coverage table.
+`MaxRSS` against `ReqMem` is the first thing to check if a job dies.
 
-This writes six files into `outputs/`, all sharing one stem
-`graph_20250101T000000_20251201T000000_all_<UTC timestamp>Z`:
+**If a job is killed**, resubmit the same command. Each of the five stages is
+skipped once its own `summary.json` exists, so a resubmission resumes where the
+previous attempt stopped and replaces only the partial stage. Nothing needs
+editing, and `RUN` should stay the same.
 
-- `<stem>.graphml` — the street graph
-- `<stem>_segments.graphml` — the segment graph the models use
-- `<stem>_crash_segments.csv` — crashes matched to segments
-- `<stem>_segment_metrics.csv`, `<stem>_crashes.parquet`, `<stem>_map.html`
+For run B, repeat steps 3 and 5 with `START=2018-02-28 END=2023-09-07`,
+`RUN=runB`, `--mem=128G` and `--time=36:00:00`.
 
-The timestamp is generated at run time, so resolve the stem instead of typing it:
+## 6. Send back
 
-```bash
-GRAPH=$(ls -t outputs/graph_20250101T000000_20251201T000000_all_*_segments.graphml | head -1)
-CRASHES="${GRAPH%_segments.graphml}_crash_segments.csv"
-echo "$GRAPH"; echo "$CRASHES"      # both must exist
-```
-
-Keep `$GRAPH` and `$CRASHES` set for the next step, or re-run those two lines in
-each new shell.
-
-## 5. Main run
-
-```bash
-uv run python scripts/midpoint.py \
-    --speeds data/parquet/chicago-speeds \
-    --graph "$GRAPH" \
-    --crashes "$CRASHES" \
-    --window 2025-01-01 2025-12-01 \
-    --static-features length_m degree betweenness \
-    --epochs 20 --patience 4 --seed 42 --controls 5 \
-    --device auto \
-    --processed data/processed-expanded \
-    --out outputs/expanded
-```
-
-`--processed data/processed-expanded` is **required**. Its default is
-`data/processed`, which holds the frozen pilot tables; the script now refuses to
-overwrite them, so leaving it off produces an error rather than silent damage.
-
-**On a retry**, that same guard will stop you, because the first attempt already
-wrote the tables. Add `--overwrite-processed`, and use a fresh `--out`: the
-script also refuses to write into a directory that already holds a
-`summary.json`, so last run's CSVs can never sit beside this run's JSON.
-
-This trains seven models (`persistence`, `historical_mean`, `mlp`, `gcn`, `sage`,
-`tgru`, `stgcn`), estimates crash-segment effects against matched controls, and
-writes figures. On CPU this is roughly nine hours; the two temporal models are
-most of it, and the GPU should cut them sharply.
-
-Writes to `outputs/expanded/`:
+Four directories per run, plus the commit hash from step 1 and all `logs/*.out`:
 
 ```
-summary.json              results.csv             NOTES.md
-coverage_funnel.csv       monthly_coverage.csv    neighbour_coverage.csv
-effect_estimate.csv       events.csv              effects_crash.csv
-effects_control.csv       coverage.png            model_comparison.png
-crash_effect.png          crash_trajectories.png
+outputs/runA/  outputs/event_study-runA/  outputs/synthetic-runA/  outputs/runA-nozero/
 ```
 
-## 6. Event study
+`outputs/runA/` should hold 14 files (`summary.json`, `results.csv`, `NOTES.md`,
+six CSVs, four PNGs). The `-nozero` directory holds 13, not 14:
+`coverage_funnel.csv` needs `--crashes`, and `summary.json` records
+`"coverage_funnel": null`. That is correct, not a failure.
 
-Reads the joined tables the previous step wrote, so it needs no GPU and takes
-about a minute.
+Before quoting any number, read `event_study-runA/effect_against_placebo.csv`.
+On the pilot the 1- and 2-hop rows had placebos 60% or more of their effects,
+meaning those rows could not be separated from pre-existing differences. A
+change there is worth flagging immediately.
 
-```bash
-uv run python scripts/event_study.py \
-    --data data/processed-expanded \
-    --hops 2 --controls 5 --seed 42 \
-    --out outputs/event_study-expanded
-```
+## Rules
 
-Writes `summary.json`, `effect_by_hop.csv`, `effect_against_placebo.csv`,
-`effect_fixed_cohort.csv`, `effect_excluding_overlaps.csv`, `pre_trends.csv`,
-`covariate_balance.csv`, `neighbour_coverage.csv`, `effects_by_cell.csv`,
-`hop_effects.png`.
-
-**Read `effect_against_placebo.csv` before quoting any number from it.** On the
-pilot the 1- and 2-hop rows had placebos 60% or more of their effects, which
-means those rows could not be separated from pre-existing differences. If the
-expanded sample changes that, it is a finding worth flagging immediately.
-
-## 7. Semi-synthetic benchmark
-
-```bash
-uv run python scripts/benchmark.py \
-    --data data/processed-expanded \
-    --events 200 --controls 5 \
-    --epochs 20 --patience 4 --seed 42 \
-    --device auto \
-    --out outputs/synthetic-expanded
-```
-
-Writes `summary.json`, `effect_recovery.csv`, `forecast.csv`, `truth.csv`,
-`events.csv`, `controls.csv`. This retrains all seven models, so budget
-similarly to step 5.
-
-## 8. Zero-speed sensitivity
-
-A separate run, not a replacement. It treats an observed `0.0` mph as missing;
-the main run keeps zeros, which is the pilot convention.
-
-```bash
-uv run python scripts/midpoint.py \
-    --data data/processed-expanded \
-    --static-features length_m degree betweenness \
-    --epochs 20 --patience 4 --seed 42 --controls 5 \
-    --device auto --drop-zero-speed \
-    --out outputs/expanded-nozero
-```
-
-It reads the already-joined tables, so it does not touch `--processed` and cannot
-disturb step 5. It writes to `outputs/expanded-nozero/`.
-
-Expect **13 files, not 14**: `coverage_funnel.csv` is only written when
-`--crashes` is given, and the `--data` path has no crash audit CSV to build it
-from. `summary.json` records `"coverage_funnel": null`. That is correct, not a
-failed job.
-
-This flag changes more than the outcome: it also moves the model's inputs, the
-normalisation constants and two figures. `docs/experiments.md` records what, and
-the comparison should be read with that in mind.
-
-## 9. What to send back
-
-The whole of each output directory, plus the commit hash from step 1 and the
-device line from step 2:
-
-```
-outputs/expanded/
-outputs/event_study-expanded/
-outputs/synthetic-expanded/
-outputs/expanded-nozero/
-```
-
-Also send any `slurm-*.out` logs. If a job dies, send the log before retrying;
-a crash after six hours of training usually says something about the data.
-
-## 10. Rules
-
-- Never write to `outputs/midpoint/` or `data/processed/`.
-- One run, one output directory. Do not re-run into a directory that already has
-  results; stale files from a previous run read as current.
-- Do not change filtering, window or seed arguments to get better-looking
-  numbers. If a count looks wrong, report it.
-- `--seed` will not redraw the controls. The control match is deterministic, so
-  repeating a run under a new seed gives the same control set and only moves the
-  model initialisation. To vary the control draw, use
-  `scripts/event_study.py --random-controls`.
-- `--device auto` falls back to CPU silently if CUDA is not visible on the node.
-  Every `summary.json` now records the device actually used; check it before
-  trusting a fast-looking run.
-- If a run fails or a number looks surprising, say so before running the next
-  thing. Surprising counts usually mean a data problem, and running three more
-  jobs on the same bad input wastes the cluster time.
+- Never run `scripts/prepare_roads.py` or `scripts/download_street_graph.py`.
+  OpenStreetMap is live, so a rebuild today yields different node IDs than the
+  2026-11-08 download the pilot used, silently breaking every
+  pilot-versus-expanded comparison. Step 2 is the only way these files arrive.
+- `outputs/` and `data/processed*` are gitignored, so a fresh clone has neither
+  the frozen pilot nor any results. Everything you produce is untracked and has
+  to be copied back (step 6).
+- One run, one `RUN` tag. Stale files from a previous run read as current.
+- Do not change filtering, window or seed arguments to improve the numbers. If
+  a count looks wrong, report it.
+- `--seed` does not redraw the controls; the match is deterministic. Use
+  `scripts/event_study.py --random-controls` to vary the control draw.
+- `--device auto` falls back to CPU silently. Every `summary.json` records the
+  device actually used; check it before trusting a fast run.
+- If a job fails or a number surprises you, say so before submitting the next
+  one. Surprising counts usually mean a data problem.

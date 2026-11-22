@@ -381,14 +381,14 @@ def test_matching_hops_needs_a_graph(events):
     assert len(w_controls)
 
 
-def test_midpoint_refuses_to_replace_existing_processed_tables(pipeline, tmp_path):
+def test_experiment_refuses_to_replace_existing_processed_tables(pipeline, tmp_path):
     """The join writes to `--processed`, whose default holds the frozen tables
     every recorded result rests on. Replacing them silently would change what
     later `--data` runs read while the provenance still named the old window."""
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "midpoint", Path(__file__).resolve().parents[1] / "scripts" / "midpoint.py"
+        "experiment", Path(__file__).resolve().parents[1] / "scripts" / "experiment.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
