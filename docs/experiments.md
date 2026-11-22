@@ -178,17 +178,23 @@ same 2,720 events throughout, only the control draw changes:
 | 2-hop neighbourhood | 0.24 | 0.73 | 0.60 |
 
 **No specification brings a spillover row under 0.6**, and the one that helps
-the spillover most is the one that spoils the direct effect. Widening the match
+the spillover most is the one that spoils the direct effect. `placebo_share` is
+the ratio `|placebo| / |effect|`, nothing more: it is unbounded, it exceeds 1
+whenever the placebo is larger than the estimate, and it is **not** a
+probability or a p-value. Read it beside the interval, never instead of it. Widening the match
 trades balance on the crash road for balance on its neighbours, because a
 single control week cannot be closest to the crash road and to thirty other
 roads at once. The default stays `match_hops=0`: it gives the cleanest estimate
 of the effect that *is* reportable, and the wider settings are kept as the
 sensitivity check rather than as a better answer.
 
-Read together, these three rows are the evidence for the negative result. The
-1- and 2-hop differences are not shown to be crash effects under any matching
-rule tried, and the reason is not sample size: every row above rests on the
-same 2,720 events.
+Read together, these three rows say the spillover estimate is **inconclusive,
+not zero**. They show the control-matching design cannot separate a
+neighbouring-road effect from pre-existing differences between the arms, under
+any of the three rules tried. They do not show that crashes leave neighbouring
+roads unaffected: a true effect could be present and still be unidentifiable
+with these controls. The reason is not sample size, since every row above rests
+on the same 2,720 events. Report the magnitude and direction as uncertain.
 
 The old random draw is kept as `match_pre_event=False` for the matching-rule
 sensitivity check PR #10 asks for. It is not the default, and it should not be
