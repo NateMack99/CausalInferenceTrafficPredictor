@@ -78,6 +78,14 @@ Conventions that are not flags:
   Control admissibility reads the same `crash_cells` grid that masks training
   cells, so the control no-exposure radius always equals `--exposure-hops`.
 
+- **Stopping rule for control matching.** Four rules have been tried and the
+  record of all four stays in this file. Do not keep searching for a
+  specification that shrinks the placebo: with one control draw per rule, the
+  smallest placebo share across enough rules is a selection on noise, and the
+  rule that most helps the spillover is the one that most spoils the direct
+  effect. A new rule needs a reason stated before it is run, and it is reported
+  beside the default rather than replacing it. Never choose a rule because it
+  makes an effect larger or a placebo smaller.
 - **Timestamps are naive local time** (America/Chicago), never UTC. See `docs/data.md`.
 - **Splits are chronological, never random.** Windows overlap at stride 1, so a
   random split leaks neighbouring targets into training.
