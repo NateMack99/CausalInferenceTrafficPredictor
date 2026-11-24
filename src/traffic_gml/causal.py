@@ -33,6 +33,7 @@ from torch import Tensor
 
 from .data import BIN_MINUTES
 from .events import Windows, crash_index, hop_rings, pre_event_stats
+from .graph import neighbourhood
 
 
 def reported_cells(
@@ -87,16 +88,24 @@ def arm_table(
     against observed targets: the missingness audit.
 
     When `reported` is given, `other_crash` flags rows whose post span contains
-    a crash reported on that same road at or after the origin, excluding the
-    index crash's own cell. That is the overlapping-incident confound; it is
-    returned as a column so a caller can report both the available-case and the
-    clean-cohort estimate rather than silently choosing one.
+    a crash reported on that road **or any road adjacent to it**, excluding the
+    index crash. That is the overlapping-incident confound; it is returned as a
+    column so a caller can report both the available-case and the clean-cohort
+    estimate rather than silently choosing one. The pre span needs no flag: a
+    ring road is already skipped unless its own pre span is crash-free, and
+    `clean` spreads `--exposure-hops` across the graph.
     """
     values = reference.values.numpy()
     clean = reference.clean.numpy()
     history, horizon = reference.history, reference.horizon
     rings = hop_rings(edge_index, reference.num_roads, hops)
     levels, trends = pre_event_stats(values, history)
+    # Reports within one hop of each road, counted so the index crash's own
+    # report can be subtracted exactly rather than masking a genuine second one.
+    near_reports = None
+    if reported is not None:
+        adjacent = neighbourhood(edge_index, reference.num_roads, 1)
+        near_reports = reported.astype(np.int32) @ adjacent
 
     rows: list[dict] = []
     eligible = np.zeros(hops + 1, dtype=np.int64)
@@ -123,14 +132,14 @@ def arm_table(
                 eligible[hop] += 1
                 observed[hop] += np.isfinite(values[post, other])
                 second = False
-                if reported is not None:
-                    hits = reported[post, other].copy()
-                    if hop == 0:
-                        # The index crash is reported in the window's first bin
-                        # on its own road; that one is the treatment, not a
-                        # confound.
-                        hits[0] = False
-                    second = bool(hits.any())
+                if near_reports is not None:
+                    hits = near_reports[post, other].copy()
+                    if hop <= 1:
+                        # The index crash sits within one hop of its own road and
+                        # of its immediate neighbours, reported in the window's
+                        # first bin. That one is the treatment, not a confound.
+                        hits[0] -= 1
+                    second = bool((hits > 0).any())
                 for step in range(horizon):
                     speed = values[origin + 1 + step, other]
                     if not np.isfinite(speed):

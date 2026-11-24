@@ -79,6 +79,16 @@ Conventions that are not flags:
   Control admissibility reads the same `crash_cells` grid that masks training
   cells, so the control no-exposure radius always equals `--exposure-hops`.
 
+- **`other_crash` covers the target road and its neighbours.** A second crash
+  reported anywhere within one hop of a ring road, inside its post span, sets
+  the flag; the index crash's own report is subtracted exactly, so a genuine
+  second report in the same bin still counts. The pre span needs no flag
+  because a ring road is skipped unless its own pre span is crash-free and
+  `clean` already spreads `--exposure-hops`. `effect_excluding_overlaps` is the
+  same estimate without the flagged cells.
+- **`attrition.csv`** counts crash cells dropped for want of a surviving
+  control, by hop, so a distance profile is not read across silently different
+  samples per ring.
 - **`availability.csv` is the missingness audit.** Eligible ring roads against
   observed targets, by arm, hop and event-time bin. If crash exposure predicts
   missingness the two arms diverge there, and the effect is read across
@@ -284,6 +294,10 @@ The old random draw is kept as `match_pre_event=False` for the matching-rule
 sensitivity check PR #10 asks for. It is not the default, and it should not be
 chosen because it makes an effect larger: it gives a bigger 1-hop number and a
 worse placebo.
+
+The 0.6% second-crash figure above counted the **same road only**. The flag
+now also catches a crash on an adjacent road, so a rerun will report a higher
+share; how much higher is not yet measured.
 
 Known limits of this table, beyond the placebo: the road and control sets vary
 step by step, so a time profile is read across changing populations; the
