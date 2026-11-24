@@ -79,6 +79,11 @@ PR #3 plus `scripts/experiment.py`:
   a diagnostic, not causal validation. Forecast error goes to its own table. Cells whose
   matched control is missing are dropped from both arms and the loss is recorded, since
   that loss is hop-dependent.
+- An **effect-duration summary** (`causal.effect_duration`): per ring, how many horizon
+  steps have an event-clustered interval wholly below zero, and whether the ring is still
+  negative at the last step, which censors the duration. It reuses the event-study
+  estimates and tests nothing new, so it is read only after the placebo, matching and
+  missingness diagnostics.
 - A **matched event study** with no forecaster (`causal.py`, PR #7). Each window's own
   pre-event mean is subtracted from its post-event speeds, and the matched control
   window's same quantity is subtracted from that:
@@ -153,7 +158,7 @@ real data is recorded yet.
 
 1. Take **real accident-free windows**, held out from training.
 2. Inject **known** slowdowns on a chosen road and propagate them across connected roads,
-   varying magnitude, duration, graph distance, and direction.
+   varying magnitude, duration and graph distance.
 3. Save the unmodified speeds and the injected effects as ground truth.
 4. Give the counterfactual predictor only pre-event inputs from the injected series. The
    injected effects are **never** revealed to it, and it is never trained on benchmark

@@ -9,7 +9,7 @@
 
 ## 1. The three research questions
 
-**RQ1 — Direct and neighboring-road effects.** How do estimated speed changes vary over the first hour after a crash, across the incident road, 1-hop roads, and 2-hop roads? Do the findings survive target-road pretrend, placebo, missingness, concurrent-crash, and fixed-cohort checks? Where the road data support it, does upstream/downstream direction matter?
+**RQ1 — Direct and neighboring-road effects.** How do estimated speed changes vary over the first hour after a crash, across the incident road, 1-hop roads, and 2-hop roads? Do the findings survive target-road pretrend, placebo, missingness, concurrent-crash, and fixed-cohort checks? How long does a detectable contrast last?
 
 **RQ2 — Value of the road graph.** Does real connectivity improve (a) held-out speed forecasting and (b) recovery of **known** treatment effects, compared with equally informed non-graph models, self-only graph models, and a falsified/rewired graph?
 
@@ -78,7 +78,12 @@ the clauses below.
 **Gate passed.** The CPU fixture is the existing offline suite, which covers
 exposure assignment, input leakage, paired masks and effect alignment.
 
-## 4. Automated workstreams — all valuable, not all equally urgent
+## 4. Automated workstreams — A to D, scoped to the three research questions
+
+There is no workstream E. Directed and heterogeneous effects were removed as
+out of scope for the three research questions; the one piece that serves RQ1,
+a duration summary, moved into A. F keeps its letter so earlier notes still
+resolve.
 
 A coding agent can implement each workstream independently against the frozen interface. Complete CPU/unit tests before launching its large GPU run. The workstreams are **work units, not people or team assignments**.
 
@@ -92,6 +97,7 @@ A coding agent can implement each workstream independently against the frozen in
 - [x] Exclude or flag concurrent reported crashes on target/adjacent roads during the full input/outcome window; compare with original sample. `other_crash` now spans one hop; the pre span is already excluded by `clean`. `effect_excluding_overlaps` is the comparison; the real-data share needs the run.
 - [ ] Report **available-case and fixed-event-cohort** 0/1/2-hop trajectories with event-level 95% intervals, per-horizon events, roads, controls, and denominators.
 - [x] Audit speed availability by exposed/control status, hop, and event-time bin; test whether crash exposure predicts missingness. Keep observed `0 mph` separate from unavailable readings. `event_study.py` writes `availability.csv`; the test across arms needs the run.
+- [ ] Summarise how long each ring stays detectably negative, from the same event-time estimates and event-clustered intervals, and read it **only after** the placebo, matching and missingness diagnostics. `causal.effect_duration`, written as `effect_duration.csv`; **needs the run**.
 - [x] Document a stopping rule: do not repeatedly tune matching until placebo effects look small; keep both original and revised specifications. In `docs/experiments.md`.
 
 **Deliverables:** `outputs/identification-runA/` with balance/attrition tables, `hop_effects.csv`, placebo results, missingness diagnostics and 1–2 publication-ready figures.
@@ -134,17 +140,6 @@ A coding agent can implement each workstream independently against the frozen in
 
 **Deliverables:** `outputs/synthetic-extended-runA/` with clean truth tables and two concise benchmark figures/tables.
 
-### E. Directed and heterogeneous effects — **targeted, automated**
-
-**Purpose:** Restore the original proposal's traffic-specific questions about *where* and *how long* disruptions spread.
-
-- [ ] If directed mapping and turn feasibility can be verified programmatically, classify eligible neighbors as upstream/downstream; compare event-time profiles and report ambiguous/omitted edges. If direction is unreliable, explicitly report it as **not assessed**, not a null effect.
-- [ ] Compute a simple effect-duration measure (e.g., time windows of detectable negative contrasts) **only after** the placebo and missingness checks are stable.
-- [ ] Predeclare **at most two** heterogeneity dimensions: pre-crash congestion and either reliable crash damage/severity or road centrality. Keep subgroup definitions fixed, show counts and uncertainty, and treat these as exploratory rather than multiple-confirmed causal findings.
-- [ ] Optionally test a directed-distance exposure rule against plain hop count without changing the core paper's estimand; declare any new estimand separately.
-
-**Deliverables:** `outputs/heterogeneity-runA/` with one compact table/plot. No manual severity annotation.
-
 ### F. Extra replication and external data — **background only, never on critical path**
 
 - [ ] **Run B historical replication:** queue the existing resumable download and separate run only after primary Run A outputs are safe; `sxs8-h27x`, `[2018-02-28, 2023-09-07)`, no overlap with the 2023–2024 data gap. The historical/COVID distribution differs, so report as cross-era validation, not a pooled training extension by default.
@@ -160,7 +155,7 @@ A coding agent can implement each workstream independently against the frozen in
 | **Nov 24–25** | P0 source snapshot, event/target contract, paper skeleton; launch CPU analyses of A/E | Identical IDs/targets, documented provenance |
 | **Nov 25–27** | A controls/placebos/missingness; implement B/C/D behind shared interfaces; smoke-test | No post-treatment leakage; meaningful pretrend/overlap reports |
 | **Nov 27–29** | GPU jobs for B and C; D null/decay benchmarks; preview figures/slides | Primary results frozen for presentation; unfinished work labeled |
-| **Nov 30–Dec 5** | Presentation, finish C/D if pending, 3-seed comparisons, E direction/heterogeneity | Use only validated outputs; no auto-claim based on p-value |
+| **Nov 30–Dec 5** | Presentation, finish C/D if pending, 3-seed comparisons | Use only validated outputs; no auto-claim based on p-value |
 | **Dec 6–7** | Lock main experiments and regenerate paper tables automatically | Checksums, cross-run consistency, captions and denominators |
 | **Dec 8–9** | ACM paper edit, exact-reference review, reproducibility test, final PDF | No new unreviewed experiments; 8-page format |
 
@@ -176,8 +171,6 @@ A coding agent can implement each workstream independently against the frozen in
 | “Graph improves causal effect recovery” | Better **known-effect** error on the same synthetic events, not just speed MAE |
 | “Treatment-aware model helps” | Factual-only supervised GNN/MLP on same data plus synthetic true-effect comparison |
 | “There is a neighboring-road causal effect” | Target-road pretrends/placebos, feasible controls, concurrent-exposure robustness, stable cohorts and uncertainty; otherwise report an association and limitations |
-| “Effects spread upstream/downstream” | Verified directional road exposure and enough eligible events; not merely an undirected graph neighborhood |
-| “Effects are heterogeneous” | Prespecified subgroup, sufficient support and uncertainty, no post-hoc sign chasing |
 | “Results generalize to historical era” | Independent Run B replication and discussion of data/regime differences |
 
 **Default reporting:** state observational estimands as matched crash-associated speed contrasts. Stronger causal language is conditional on clearly defended assumptions; semi-synthetic recovery is not proof those assumptions hold for real crashes.
@@ -194,7 +187,6 @@ A coding agent can implement each workstream independently against the frozen in
 | **Figure 3:** real/self-only/rewired forecasting and effect errors | B | Pending |
 | **Table 4:** treatment-aware MLP/GNN and residual-method effect recovery | C + D | Pending |
 | **Figure 4 / Table 5:** synthetic null and known decay by hop/horizon | D | Pending |
-| **Optional:** directional and congestion/severity subgroup | E | Conditional |
 
 **Space discipline:** Only the most informative subset goes into the eight-page ACM paper. Additional results can stay in repository files or an appendix if permitted. The argument should never depend on a figure that is still pending.
 
@@ -213,10 +205,10 @@ A coding agent can implement each workstream independently against the frozen in
 
 ## 9. Final decisions
 
-**Keep:** Strong neighbor-specific identification checks; equal-information graph controls; topology ablation; one treatment-aware MLP and one GNN; null/decay/confounding synthetic cases; a few paired seeds; automatic missingness, directional and predeclared heterogeneity diagnostics.
+**Keep:** Strong neighbor-specific identification checks; equal-information graph controls; topology ablation; one treatment-aware MLP and one GNN; null/decay/confounding synthetic cases; a few paired seeds; automatic missingness diagnostics and a duration summary.
 
-**Queue only if safe:** Historical Run B, vetted weather/roadworks join, held-out doubly robust comparison, alternative directed exposure rule.
+**Queue only if safe:** Historical Run B, vetted weather/roadworks join, held-out doubly robust comparison.
 
-**Skip for December 9:** New architecture families, manually curated labels, learned exposure maps, exhaustive tuning, novel causal-graph discovery claims and large infrastructure rewrites.
+**Skip for December 9:** Upstream/downstream classification, congestion and centrality heterogeneity, directed-distance exposure, new architecture families, manually curated labels, learned exposure maps, exhaustive tuning, novel causal-graph discovery claims and large infrastructure rewrites. The segment graph is undirected by construction, so a directional result would need it rebuilt; segment direction labels exist and orient 30.4% of 1-hop pairs, which is recorded here as future work rather than scope.
 
 **Final research standard:** Compare graph and non-graph methods fairly, estimate known effects when truth is available, and show exactly what the observational data do and do not establish about traffic crash spillovers.

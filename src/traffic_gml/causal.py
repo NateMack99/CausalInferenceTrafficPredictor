@@ -285,6 +285,32 @@ def summarise(did: pd.DataFrame, column: str = "did") -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def effect_duration(summary: pd.DataFrame) -> pd.DataFrame:
+    """Per hop, how far into the window the contrast stays detectably negative.
+
+    Reuses `summarise`'s event-clustered intervals rather than testing anything
+    new: a step counts when its interval lies wholly below zero. Read it only
+    after the placebo, matching and missingness diagnostics, because a duration
+    taken from intervals the placebo cannot clear describes the arms rather
+    than the crash. `censored` marks a ring still negative at the last step,
+    where the window ends before the effect does.
+    """
+    rows = []
+    for hop, group in summary.groupby("hop"):
+        high = pd.to_numeric(group["high"], errors="coerce")
+        negative = group.loc[high < 0, "minutes"]
+        last = int(negative.max()) if len(negative) else None
+        rows.append(
+            {
+                "hop": int(hop),
+                "steps_negative": int(len(negative)),
+                "last_negative_minutes": last,
+                "censored": last is not None and last == int(group["minutes"].max()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def against_placebo(effect: pd.DataFrame, placebo: pd.DataFrame) -> pd.DataFrame:
     """The headline effect beside the placebo at the same hop and step.
 
