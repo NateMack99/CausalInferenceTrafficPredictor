@@ -15,9 +15,9 @@ print("CUDA verified:", torch.__version__, torch.version.cuda, torch.cuda.get_de
 PY
 uv run --no-sync python -m traffic_gml.mock --out "$smoke_out/data" \
     --rows 3 --cols 3 --days 90 --crashes 60 --seed 42
-uv run --no-sync python scripts/midpoint.py --data "$smoke_out/data" \
+uv run --no-sync python scripts/experiment.py --data "$smoke_out/data" \
     --data-only --static-features length_m degree --controls 5 --out "$smoke_out/audit"
-uv run --no-sync python scripts/midpoint.py --data "$smoke_out/data" \
+uv run --no-sync python scripts/experiment.py --data "$smoke_out/data" \
     --static-features length_m degree --epochs 1 --patience 1 --controls 5 \
     --device cuda --out "$smoke_out/main"
 uv run --no-sync python scripts/event_study.py --data "$smoke_out/data" \

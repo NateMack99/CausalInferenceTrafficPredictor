@@ -37,7 +37,7 @@ fi
 graph=${graphs[0]}
 crashes="${graph%_segments.graphml}_crash_segments.csv"
 sha256sum "$graph" "$crashes" > "$work/graph.sha256"
-uv run --no-sync python scripts/midpoint.py --data-only \
+uv run --no-sync python scripts/experiment.py --data-only \
     --speeds "$data/parquet/chicago-speeds-history" --graph "$graph" --crashes "$crashes" \
     --window 2024-07-01 2026-04-01 --static-features length_m degree betweenness \
     --history 12 --horizon 6 --exposure-hops 2 --stride 1 --controls 5 --seed 42 \

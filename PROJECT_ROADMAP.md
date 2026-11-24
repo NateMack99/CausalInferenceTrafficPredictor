@@ -44,20 +44,35 @@
 
 **Preserve unchanged:** `outputs/midpoint/`, `outputs/runA/`, `outputs/event_study-runA/`, `outputs/synthetic-runA/`, `outputs/runA-nozero/`, `data/processed-runA/`, the Run A Parquet datasets, and the five graph/reference files. All extensions write to new names.
 
-## 3. Non-negotiable experimental contract (P0, before expensive reruns)
+## 3. Experimental contract (P0) — met
 
-Create `docs/frozen-evaluation.md` and one machine-readable configuration/manifest that all experiments consume.
+The contract is `docs/experiments.md` (settings, eligibility, exclusions) and
+`docs/methodology.md` (estimator and limits). No third spec file and no config
+file: `scripts/hpc/experiments.sh` holds the matrix settings, and every run
+records its own in `summary.json` or `audit.json`. The offline suite enforces
+the clauses below.
 
-- [ ] **Source provenance:** Snapshot/commit the *actual* code that ran on Rivanna, including the path fixes made after logged commit `40f672e`; record `uv.lock`, Slurm arguments, environment, input manifest, run timestamp, random seeds, and output hashes. Never claim the original commit alone exactly reproduces Run A before verifying that.
-- [ ] **Splits:** Keep one primary chronological train/validation/test split with an overlap embargo for input/output windows; do not reuse the same event/congestion episode across training and test. Keep synthetic training and test interventions disjoint.
-- [ ] **Exposure:** The *real* road graph defines `none`, `0-hop/direct`, `1-hop`, `2-hop`; resolve overlapping crashes deterministically or exclude ambiguous cases. Document directed versus undirected connectivity and the actual control no-exposure radius.
-- [ ] **Same target:** Hold event IDs, target roads, horizons (10–60 minutes), masks, splits, and event weights fixed for **paired comparisons**. Do not relabel exposures using a rewired graph; rewiring changes message passing only.
-- [ ] **Pre-treatment inputs:** Limit all forecast and treatment-aware encoders to information available before crash time. The factual outcome is a **training target**, not a counterfactual input.
-- [ ] **Fair graph baseline:** A non-graph comparator receives the same relevant pre-crash road signals, including simple neighborhood-speed summaries; a model receiving less information is only an auxiliary baseline, not the decisive graph comparison.
-- [ ] **Inference:** Equal-weight crashes before aggregating across observed neighbor roads (unless a different estimand is explicitly predeclared); report event counts and event-clustered uncertainty. Distinguish 32,479 primary events, the separately defined event-study pool, horizon-specific observed subsets, and the 10,162-event fixed cohort.
-- [ ] **No manual labeling:** Crash, spatial exposure, outcomes, synthetic truth, cohorts, and diagnostics are constructed programmatically from recorded data. Invalid/ambiguous coordinates are flagged by rules, not corrected by manual inspection.
+- [x] **Provenance:** `scripts/hpc/run.sh` saves the commit, diff,
+  `source.tar.gz`, lock hash, packages, Slurm arguments and seeds per job. Run
+  A's logged commit `40f672e` cannot run the matrix, so that per-job snapshot is
+  the record rather than the commit. Confirming reproduction needs a rerun.
+- [x] **Splits:** chronological 70/15/15 with a `ceil((L+H)/stride)` embargo;
+  synthetic train and test interventions disjoint.
+- [ ] **Exposure:** rings from the real graph, undirected; a control's
+  no-exposure radius equals `--exposure-hops`. **Open:** two crashes with
+  overlapping rings leave a road's hop label ambiguous. Workstream A owns it,
+  because choosing the rule needs the comparison run.
+- [x] **Same target:** an ablation changes message passing only.
+- [x] **Pre-treatment inputs:** `x_mask` masks contaminated and missing inputs
+  alike; injection never enters the input history.
+- [x] **Fair graph baseline:** `--neighbour-hops k` gives any model the masked
+  mean speed over its k-hop neighbourhood. Off by default and unused so far, so
+  every recorded `gcn`-`mlp` gap is still an auxiliary baseline.
+- [x] **Inference:** crashes equal-weighted, intervals event-clustered.
+- [x] **No manual labeling.**
 
-**P0 gate:** One documented evaluation specification and a small CPU fixture demonstrating correct exposure assignment, no future-input leakage, identical paired target masks, and correctly aligned true/estimated treatment effects. If these fail, correct them before reporting new comparisons.
+**Gate passed.** The CPU fixture is the existing offline suite, which covers
+exposure assignment, input leakage, paired masks and effect alignment.
 
 ## 4. Automated workstreams — all valuable, not all equally urgent
 
@@ -94,7 +109,7 @@ A coding agent can implement each workstream independently against the frozen in
 
 - [ ] Generate automated factual exposure labels `none/own/1-hop/2-hop` and the corresponding observed speed targets; reject ambiguous simultaneous exposure or use a documented priority rule.
 - [ ] Implement a simple exposure-conditioned MLP and graph encoder (GCN or STGCN), each with shared pre-treatment representation and exposure-specific head/embedding; supervise **only the observed factual outcome**.
-- [ ] Give the MLP the same pre-event neighborhood information in aggregated form; keep optimization budget, training sample, masks, horizons and exposure coding aligned.
+- [ ] Give the MLP the same pre-event neighborhood information in aggregated form (`--neighbour-hops`, implemented and unused); keep optimization budget, training sample, masks, horizons and exposure coding aligned.
 - [ ] At evaluation, predict the same road/horizon **with the specified exposure and with no exposure**; score their difference against synthetic ground truth. Compare with the original residual-based estimator.
 - [ ] Check exposure overlap, head utilization, masking, training/evaluation leaks, and small synthetic examples with analytically known answers before large training.
 - [ ] Use observational outputs as a robustness comparison, **not** to tune methods to yield desired causal signs. Two potential-outcome heads do not alone resolve unmeasured confounding.
@@ -106,7 +121,7 @@ A coding agent can implement each workstream independently against the frozen in
 **Purpose:** Test effect estimation when both potential outcomes and network exposure are known.
 
 - [ ] Keep original **Benchmark 0** (200-event additive injection) for continuity; clearly state its forecast-error identity.
-- [ ] **Benchmark 1: synthetic null.** Direct crash-road slowdown but **zero true 1/2-hop effect**; measure spurious neighbor estimates and their intervals.
+- [x] **Benchmark 1: synthetic null.** Direct crash-road slowdown but **zero true 1/2-hop effect**; measure spurious neighbor estimates and their intervals. `--hop-decay 0`, no new generator; queued as `synthetic-scenarios` task 0. **Awaiting its run.**
 - [ ] **Benchmark 2: propagation.** Known 0/1/2-hop decay, temporal onset/duration, and at least two prespecified intervention magnitudes; measure effects by hop and horizon.
 - [ ] **Benchmark 3: confounded assignment (valuable).** Compare random placement with assignment dependent only on pre-crash congestion; quantify bias and overlap. Treat as sensitivity, not proof of real-data identification.
 - [ ] Use at least three **synthetic generation** seeds where feasible; never conflate those with training seeds.

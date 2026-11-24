@@ -13,7 +13,7 @@ from traffic_gml.mock import make_mock
 
 def test_data_only_audit_does_not_train(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location(
-        "midpoint", Path(__file__).resolve().parents[1] / "scripts/midpoint.py"
+        "experiment", Path(__file__).resolve().parents[1] / "scripts/experiment.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

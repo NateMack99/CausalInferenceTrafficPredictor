@@ -459,3 +459,20 @@ def test_benchmark_script_scores_both_arms_on_the_same_cells(wide_data, tmp_path
     # Per event *road*, so it cannot exceed what was requested per road.
     assert 0 < summary["controls_per_event_road"] <= int(summary["args"]["controls"])
     assert summary["event_roads"] >= summary["benchmark"]["events"]
+
+
+def test_a_zero_decay_injection_is_the_synthetic_null(built):
+    """Benchmark 1. `inject` labels a zero-effect ring instead of skipping it,
+    so the outer rings arrive as truth rows and need no separate generator."""
+    sets, edge_index = built
+    disruptions = inject(sets["test"], edge_index, events=10, hops=2, hop_decay=0.0, seed=13)
+    truth = disruptions.truth
+
+    assert set(truth.hop) == {0, 1, 2}
+    assert (truth.loc[truth.hop == 0, "true_effect"] < 0).all()
+    assert (truth.loc[truth.hop > 0, "true_effect"] == 0.0).all()
+
+    moved = ~np.isclose(disruptions.values, disruptions.untreated, equal_nan=True)
+    assert set(zip(*np.nonzero(moved), strict=True)) == set(
+        truth[truth.hop == 0].apply(cell_of, axis=1)
+    )

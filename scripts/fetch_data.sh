@@ -3,11 +3,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-DATA_DIR="$PROJECT_DIR/data"
+# DATA_DIR may point at a per-run directory; the saved token stays in the repo.
+DATA_DIR="${DATA_DIR:-$PROJECT_DIR/data}"
+mkdir -p "$DATA_DIR"
 cd "$DATA_DIR"
 
-if [[ -f "$DATA_DIR/.env" ]]; then
-  source "$DATA_DIR/.env"
+if [[ -f "$PROJECT_DIR/data/.env" ]]; then
+  source "$PROJECT_DIR/data/.env"
 fi
 TOKEN_ARGS=()
 if [[ -n "${CHICAGO_DATA_APP_TOKEN:-}" ]]; then
@@ -29,8 +31,8 @@ if [[ "${1:-}" != "--crashes-only" ]]; then
 curl --fail --show-error --compressed --retry 3 --retry-delay 5 \
   ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} \
   'https://data.cityofchicago.org/resource/4g9f-3jbs.csv?$limit=50000000&$select=time%2Csegment_id%2Cspeed&$where=time%20between%20%272025-01-01T00%3A00%3A00%27%20and%20%272026-01-01T00%3A00%3A00%27' \
-  --output chicago-speeds.csv
-"$FETCH_PYTHON" "$SCRIPT_DIR/convert_to_parquet.py" chicago-speeds.csv --kind speeds --overwrite
+  --output chicago-speeds-history.csv
+"$FETCH_PYTHON" "$SCRIPT_DIR/convert_to_parquet.py" chicago-speeds-history.csv --kind speeds --overwrite
 fi
 # Window defaults to the pilot year; override for another run, e.g.
 # CRASH_START=2024-06-11 CRASH_END=2026-05-01 bash scripts/fetch_data.sh --crashes-only

@@ -24,6 +24,7 @@ from traffic_gml.causal import (
     summarise,
 )
 from traffic_gml.data import FREQ
+from traffic_gml.evaluate import placebo_corrected
 from traffic_gml.events import build_windows, event_datasets
 from traffic_gml.mock import make_mock
 
@@ -267,3 +268,23 @@ def test_covariate_balance_compares_the_arms(study):
         if row.feature in ("length_m", "degree"):
             assert abs(row.std_diff) < 0.25, f"{row.feature} should match by construction"
         assert row.n_crash and row.n_control
+
+
+def test_placebo_corrected_weights_every_crash_equally():
+    """A crash that drew more controls must not pull the control arm toward itself."""
+    event = pd.DataFrame(
+        {"crash_record_id": ["a", "b"], "minutes": [10, 10], "effect": [-4.0, -2.0]}
+    )
+    control = pd.DataFrame(
+        {
+            "crash_record_id": ["a", "b", "b", "b"],
+            "minutes": [10] * 4,
+            "effect": [0.0, -3.0, -3.0, -3.0],
+        }
+    )
+    row = placebo_corrected(event, control).iloc[0]
+    assert row.crash == -3.0  # (-4 - 2) / 2
+    assert row.control == -1.5  # crash a contributes 0.0, crash b its own mean of -3.0
+    assert row.effect == -1.5
+    assert row.events == 2
+    assert row.n == 2

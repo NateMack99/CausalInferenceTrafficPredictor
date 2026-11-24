@@ -28,7 +28,7 @@ submit() {
     job=$(sbatch --parsable --account=nssac_students --partition="$partition" \
         --nodes=1 --ntasks=1 --cpus-per-task=4 --mem="$memory" --time="$duration" \
         --job-name="traffic-$stage" --dependency="$dependencies" --kill-on-invalid-dep=yes \
-        --output="$logs/$stage-%A_%a.log" "${extra[@]}" \
+        --output="$logs/$stage-%A_%a.log" ${extra[@]+"${extra[@]}"} \
         scripts/hpc/run.sh "$logs/meta" "${command[@]}")
     job=${job%%;*}
     [[ "$job" =~ ^[0-9]+$ ]]
@@ -49,7 +49,7 @@ zero_benchmark=$(submit benchmark-nozero gpu 128G 24:00:00 "afterok:$report")
 matching=$(submit matching bii 128G 04:00:00 "afterok:$report" '0-4%1')
 seeds=$(submit forecast-seeds gpu 128G 24:00:00 "afterok:$zero_main:$zero_benchmark" '0-7%2')
 graph=$(submit graph-ablation gpu 128G 24:00:00 "afterok:$seeds" '0-5%2')
-scenarios=$(submit synthetic-scenarios gpu 128G 24:00:00 "afterok:$graph" '0-1%2')
+scenarios=$(submit synthetic-scenarios gpu 128G 24:00:00 "afterok:$graph" '0-2%2')
 submit finish bii 4G 00:15:00 \
     "afterany:$audit:$main:$event:$benchmark:$report:$zero_main:$zero_event:$zero_benchmark:$matching:$seeds:$graph:$scenarios" \
     > /dev/null

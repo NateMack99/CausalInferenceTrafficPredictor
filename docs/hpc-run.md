@@ -40,9 +40,10 @@ uv venv --python 3.12 .venv && uv sync --locked
 mkdir -p logs            # Slurm opens the log file before the job runs
 ```
 
-Then set your allocation in both job files, replacing `CHANGE_ME` on the
-`#SBATCH --account=` line of `slurm/fetch.slurm` and `slurm/experiment.slurm`.
-A job submitted without it is rejected immediately.
+Both job files request `--account=nssac_students`. Change the
+`#SBATCH --account=` line of `slurm/fetch.slurm` and `slurm/experiment.slurm`
+if your allocation differs; a job submitted without a valid one is rejected
+immediately.
 
 ## 2. Copy the road network from Kyle
 

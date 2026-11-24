@@ -34,7 +34,7 @@ case "$stage" in
     main|main-nozero)
         extra=()
         [[ "$stage" != main-nozero ]] || extra=(--drop-zero-speed)
-        uv run --no-sync python scripts/midpoint.py "${window[@]}" "${features[@]}" \
+        uv run --no-sync python scripts/experiment.py "${window[@]}" "${features[@]}" \
             "${training[@]}" --seed 42 --controls 5 --effect-model gcn \
             "${extra[@]}" --out "$run/$stage-seed42"
         ;;
@@ -86,14 +86,17 @@ case "$stage" in
         ;;
     synthetic-scenarios)
         task=${SLURM_ARRAY_TASK_ID:?}
-        (( task >= 0 && task < 2 ))
-        if (( task == 0 )); then
-            extra=(--shape plateau --duration 3 --placement uniform)
-            name=plateau
-        else
-            extra=(--shape decay --duration 2 --placement congested)
-            name=congested
-        fi
+        (( task >= 0 && task < 3 ))
+        case "$task" in
+            # Benchmark 1: a real crash-road effect and a true zero on both
+            # outer rings, so any neighbour estimate here is spurious.
+            0) extra=(--shape decay --duration 2 --placement uniform --hop-decay 0)
+               name=null ;;
+            1) extra=(--shape plateau --duration 3 --placement uniform)
+               name=plateau ;;
+            2) extra=(--shape decay --duration 2 --placement congested)
+               name=congested ;;
+        esac
         uv run --no-sync python scripts/benchmark.py "${window[@]}" "${features[@]}" \
             "${training[@]}" "${benchmark[@]}" --seed 42 "${extra[@]}" \
             --out "$run/synthetic-scenarios/$name"
