@@ -30,7 +30,14 @@ import pandas as pd
 
 from traffic_gml.data import load_tables
 from traffic_gml.evaluate import control_corrected, effect_recovery, effects, evaluate
-from traffic_gml.events import build_windows, fitted_cells, processed_tables, write_processed
+from traffic_gml.events import (
+    ABLATIONS,
+    ablate_edges,
+    build_windows,
+    fitted_cells,
+    processed_tables,
+    write_processed,
+)
 from traffic_gml.models import BASELINES, CONVS, TEMPORAL, build_model, resolve_device
 from traffic_gml.synthetic import PLACEMENTS, SHAPES, inject, matched_controls, treated_windows
 from traffic_gml.train import DEFAULTS, code_version, data_version, fit, set_seed
@@ -55,6 +62,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     windows.add_argument("--history", type=int, default=12)
     windows.add_argument("--horizon", type=int, default=6)
     windows.add_argument("--exposure-hops", type=int, default=2)
+    windows.add_argument("--graph-ablation", default="real", choices=list(ABLATIONS))
+    windows.add_argument("--graph-seed", type=int)
     windows.add_argument(
         "--neighbour-hops",
         type=int,
@@ -116,10 +125,17 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         drop_zero_speed=args.drop_zero_speed,
     )
     train, test = sets["train"], sets["test"]
+    # `model_edges` for message passing, `edge_index` for injection: the
+    # exposure rings stay on the real graph so every arm scores the same
+    # interventions and only the topology the model sees changes.
+    graph_seed = args.seed if args.graph_seed is None else args.graph_seed
+    model_edges = ablate_edges(edge_index, train.num_roads, args.graph_ablation, graph_seed)
     print(
         f"{train.num_roads} roads, {edge_index.size(1):,} arcs, "
         + "  ".join(f"{n}={len(d):,}" for n, d in sets.items())
     )
+    if args.graph_ablation != "real":
+        print(f"graph ablation: {args.graph_ablation}, {model_edges.size(1):,} arcs for the model")
 
     # Inject into the held-out split only: a disruption in a window the model
     # trained on would score memorisation rather than recovery.
@@ -162,19 +178,19 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         fit(
             model,
             sets,
-            edge_index,
+            model_edges,
             epochs=args.epochs,
             patience=args.patience,
             batch_size=args.batch_size,
             device=args.device,
             verbose=False,
         )
-        forecast[name] = evaluate(model, test, edge_index, args.batch_size, args.device)
+        forecast[name] = evaluate(model, test, model_edges, args.batch_size, args.device)
 
-        event = effects(model, treated, edge_index, args.batch_size, args.device).merge(
+        event = effects(model, treated, model_edges, args.batch_size, args.device).merge(
             identity, on="origin"
         )
-        control = effects(model, control_windows, edge_index, args.batch_size, args.device)
+        control = effects(model, control_windows, model_edges, args.batch_size, args.device)
         corrected = control_corrected(event, control, pairs)
 
         # Both estimators are scored on the *same* cells. `control_corrected`
