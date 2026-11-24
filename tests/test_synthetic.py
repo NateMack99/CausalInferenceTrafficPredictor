@@ -459,3 +459,24 @@ def test_benchmark_script_scores_both_arms_on_the_same_cells(wide_data, tmp_path
     # Per event *road*, so it cannot exceed what was requested per road.
     assert 0 < summary["controls_per_event_road"] <= int(summary["args"]["controls"])
     assert summary["event_roads"] >= summary["benchmark"]["events"]
+
+
+def test_both_arms_share_inputs_including_the_neighbour_channel():
+    """Why the neighbour channel may be precomputed from the real grid.
+
+    `treated_windows` swaps `values` but not the channel, which is only sound
+    because injection starts after the window origin and so never enters the
+    lag span. If injection ever reached the input history this fails, and the
+    treated arm would be reading un-injected neighbour speeds.
+    """
+    tables = make_mock(rows=4, cols=4, days=12, crashes=20, seed=0)
+    sets, edge_index = build_windows(tables, history=HISTORY, horizon=HORIZON, neighbour_hops=1)
+    disruptions = inject(sets["test"], edge_index, events=10, seed=13)
+    treated = treated_windows(sets["test"], disruptions)
+    untreated = untreated_windows(sets["test"], disruptions)
+
+    assert treated.neighbour is not None
+    assert torch.equal(treated.origins, untreated.origins)
+    for i in range(len(treated)):
+        assert torch.equal(treated[i]["x"], untreated[i]["x"])
+    assert not torch.equal(treated[0]["y"], untreated[0]["y"])
