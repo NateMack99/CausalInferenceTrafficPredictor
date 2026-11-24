@@ -105,7 +105,9 @@ submit() {
 verify=$(submit verify cpu 00:30:00 "")
 if [[ "$smoke" == yes ]]; then
     submit smoke gpu 00:30:00 "afterok:$verify" > /dev/null
-    printf '\nSmoke test queued. Manifest: %s\n' "$manifest"
+    cp "$manifest" "$root/manifest-latest.tsv"
+    printf '\nSmoke test queued. Status: bash scripts/hpc/status.sh %s\n' \
+        "$root/manifest-latest.tsv"
     exit 0
 fi
 
