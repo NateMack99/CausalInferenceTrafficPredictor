@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt  # noqa: E402  -- after the Agg backend is set
 from torch.utils.data import DataLoader
 
 from .data import BIN_MINUTES, local_time
-from .events import Windows, crash_index, hop_rings
+from .events import EXPOSURES, Windows, crash_index, hop_rings
 from .graph import neighbourhood
 from .models import on_device, predict, resolve_device
 
@@ -109,6 +109,46 @@ def effects(
                     "observed": (batch["y"] * data.std + data.mean)[mask].numpy(),
                     "predicted": (prediction * data.std + data.mean)[mask].numpy(),
                     "effect": ((batch["y"] - prediction) * data.std)[mask].numpy(),
+                }
+            )
+        )
+    return pd.concat(frames, ignore_index=True)
+
+
+def exposure_effects(
+    model, data: Windows, edge_index: Tensor, batch_size: int = 64, device: str = "cpu"
+) -> pd.DataFrame:
+    """Each cell's outcome under its factual exposure and under `none`, in mph.
+
+    `effect` is the difference between two of the model's own heads. Factual
+    supervision does not identify it: nothing in the data tells the model what
+    an exposed road would have done unexposed, so read it as a model contrast
+    under the assumptions in `docs/methodology.md`, never as a measured effect.
+    """
+    run_on = resolve_device(device)
+    model.eval().to(run_on)
+    edge_index = edge_index.to(run_on)
+    frames = []
+    for batch in DataLoader(data, batch_size=batch_size):
+        batch = on_device(batch, run_on)
+        with torch.no_grad():
+            outcomes = model.outcomes(batch["x"], batch["x_mask"], edge_index).cpu()
+        batch = {k: v.cpu() if hasattr(v, "cpu") else v for k, v in batch.items()}
+        exposure = batch["exposure"]
+        factual = outcomes.gather(1, exposure.unsqueeze(1)).squeeze(1)
+        untreated = outcomes[:, EXPOSURES.index("none")]
+        where = batch["y_mask"].nonzero()
+        mask = batch["y_mask"]
+        frames.append(
+            pd.DataFrame(
+                {
+                    "origin": batch["origin"][where[:, 0]].numpy(),
+                    "minutes": (where[:, 1].numpy() + 1) * BIN_MINUTES,
+                    "road": where[:, 2].numpy(),
+                    "exposure": exposure[mask].numpy(),
+                    "factual": (factual * data.std + data.mean)[mask].numpy(),
+                    "untreated": (untreated * data.std + data.mean)[mask].numpy(),
+                    "effect": ((factual - untreated) * data.std)[mask].numpy(),
                 }
             )
         )

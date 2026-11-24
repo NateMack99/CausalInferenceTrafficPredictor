@@ -88,7 +88,7 @@ A coding agent can implement each workstream independently against the frozen in
 - [ ] Exclude or flag concurrent reported crashes on target/adjacent roads during the full input/outcome window; compare with original sample.
 - [ ] Report **available-case and fixed-event-cohort** 0/1/2-hop trajectories with event-level 95% intervals, per-horizon events, roads, controls, and denominators.
 - [ ] Audit speed availability by exposed/control status, hop, and event-time bin; test whether crash exposure predicts missingness. Keep observed `0 mph` separate from unavailable readings.
-- [ ] Document a stopping rule: do not repeatedly tune matching until placebo effects look small; keep both original and revised specifications.
+- [x] Document a stopping rule: do not repeatedly tune matching until placebo effects look small; keep both original and revised specifications. In `docs/experiments.md`.
 
 **Deliverables:** `outputs/identification-runA/` with balance/attrition tables, `hop_effects.csv`, placebo results, missingness diagnostics and 1–2 publication-ready figures.
 
@@ -107,10 +107,10 @@ A coding agent can implement each workstream independently against the frozen in
 
 **Purpose:** Test explicit intervention conditioning rather than only forecasts of untreated speed.
 
-- [ ] Generate automated factual exposure labels `none/own/1-hop/2-hop` and the corresponding observed speed targets; reject ambiguous simultaneous exposure or use a documented priority rule.
-- [ ] Implement a simple exposure-conditioned MLP and graph encoder (GCN or STGCN), each with shared pre-treatment representation and exposure-specific head/embedding; supervise **only the observed factual outcome**.
-- [ ] Give the MLP the same pre-event neighborhood information in aggregated form (`--neighbour-hops`, implemented and unused); keep optimization budget, training sample, masks, horizons and exposure coding aligned.
-- [ ] At evaluation, predict the same road/horizon **with the specified exposure and with no exposure**; score their difference against synthetic ground truth. Compare with the original residual-based estimator.
+- [x] Generate automated factual exposure labels `none/own/1-hop/2-hop` and the corresponding observed speed targets; reject ambiguous simultaneous exposure or use a documented priority rule. `events.exposure_labels`; concurrent exposure resolves to the nearer crash.
+- [x] Implement a simple exposure-conditioned MLP and graph encoder (GCN or STGCN), each with shared pre-treatment representation and exposure-specific head/embedding; supervise **only the observed factual outcome**. `models.TreatmentAware` as `treatment_mlp` and `treatment_gcn`, trained on `Windows.factual()`.
+- [x] Give the MLP the same pre-event neighborhood information in aggregated form (`--neighbour-hops`); keep optimization budget, training sample, masks, horizons and exposure coding aligned.
+- [ ] At evaluation, predict the same road/horizon **with the specified exposure and with no exposure**; score their difference against synthetic ground truth. Compare with the original residual-based estimator. `evaluate.exposure_effects` provides the readout; the scoring needs the run.
 - [ ] Check exposure overlap, head utilization, masking, training/evaluation leaks, and small synthetic examples with analytically known answers before large training.
 - [ ] Use observational outputs as a robustness comparison, **not** to tune methods to yield desired causal signs. Two potential-outcome heads do not alone resolve unmeasured confounding.
 
@@ -125,7 +125,7 @@ A coding agent can implement each workstream independently against the frozen in
 - [ ] **Benchmark 2: propagation.** Known 0/1/2-hop decay, temporal onset/duration, and at least two prespecified intervention magnitudes; measure effects by hop and horizon.
 - [ ] **Benchmark 3: confounded assignment (valuable).** Compare random placement with assignment dependent only on pre-crash congestion; quantify bias and overlap. Treat as sensitivity, not proof of real-data identification.
 - [ ] Use at least three **synthetic generation** seeds where feasible; never conflate those with training seeds.
-- [ ] Preserve `Y(0)`, `Y(a)`, treatment label, ground-truth `tau`, event/road/time IDs and observation masks. All models score the **same** held-out interventions.
+- [x] Preserve `Y(0)`, `Y(a)`, treatment label, ground-truth `tau`, event/road/time IDs and observation masks. All models score the **same** held-out interventions. `Disruptions.truth` carries all of them.
 - [ ] Report effect MAE/RMSE, average bias, estimated-vs-true trajectories, false neighbor spillover under the null, and event-bootstrap intervals. Avoid pooled-only metrics.
 
 **Deliverables:** `outputs/synthetic-extended-runA/` with clean truth tables and two concise benchmark figures/tables.
@@ -198,11 +198,11 @@ A coding agent can implement each workstream independently against the frozen in
 
 - [ ] Automated scripts produce all labels/cohorts/figures/tables; no hand-assigned crash outcomes or counterfactuals.
 - [ ] Every output folder contains frozen configuration, source revision or code snapshot, data manifests, seeds, sample counts and flags.
-- [ ] Row IDs, speeds, outcomes, treatment exposures and graphs are unchanged across paired methods except for the single dimension intentionally ablated.
-- [ ] Test splits exclude overlapping future targets and contaminated control histories; event-clustered uncertainty treats roads/horizons as dependent.
-- [ ] Synthetic ground truth is defined independently of which model happens to perform best; evaluate on held-out interventions.
+- [x] Row IDs, speeds, outcomes, treatment exposures and graphs are unchanged across paired methods except for the single dimension intentionally ablated.
+- [x] Test splits exclude overlapping future targets and contaminated control histories; event-clustered uncertainty treats roads/horizons as dependent.
+- [x] Synthetic ground truth is defined independently of which model happens to perform best; evaluate on held-out interventions.
 - [ ] Clear denominator for every result (crashes, unique events, roads, road-time cells, matched controls). Separate full, observed, and fixed cohorts.
-- [ ] Missing readings are masked; `0 mph` sensitivity is explicitly a changed measurement convention and possibly changed population.
+- [x] Missing readings are masked; `0 mph` sensitivity is explicitly a changed measurement convention and possibly changed population.
 - [ ] All paper numbers are read from saved machine-readable outputs. Generate a result index showing which source file populates which manuscript table/figure.
 - [ ] Compare the final paper to the original proposal's three questions and two hypotheses; explain changes as methodological refinements rather than invented new goals.
 - [ ] Final draft stays **balanced**: mark existing figures as completed and pending comparisons as pending, then write final interpretation after results arrive.
