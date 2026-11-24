@@ -59,7 +59,7 @@ def arm_table(
     hops: int = 2,
     reported: np.ndarray | None = None,
     require_clean_post: bool = False,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Observed speed minus each window's own pre-event baseline, per ring road.
 
     `frame` needs `event_id`, `road` and `origin`; `road` is the crash road, and
@@ -83,6 +83,9 @@ def arm_table(
     almost none does in the placebo run, so the two runs are filtered
     differently and the placebo is silent on exactly this bias.
 
+    Returns the per-cell table and, by hop and step, eligible ring roads
+    against observed targets: the missingness audit.
+
     When `reported` is given, `other_crash` flags rows whose post span contains
     a crash reported on that same road at or after the origin, excluding the
     index crash's own cell. That is the overlapping-incident confound; it is
@@ -93,8 +96,11 @@ def arm_table(
     clean = reference.clean.numpy()
     history, horizon = reference.history, reference.horizon
     rings = hop_rings(edge_index, reference.num_roads, hops)
+    levels, trends = pre_event_stats(values, history)
 
     rows: list[dict] = []
+    eligible = np.zeros(hops + 1, dtype=np.int64)
+    observed = np.zeros((hops + 1, horizon), dtype=np.int64)
     for event_id, road, origin in zip(
         frame["event_id"], frame["road"], frame["origin"], strict=True
     ):
@@ -111,11 +117,11 @@ def arm_table(
                     continue
                 if require_clean_post and not clean[post, other].all():
                     continue
-                baseline = values[pre, other]
-                baseline = baseline[np.isfinite(baseline)]
-                if not baseline.size:
+                level = levels[origin, other]
+                if not np.isfinite(level):
                     continue
-                level = float(baseline.mean())
+                eligible[hop] += 1
+                observed[hop] += np.isfinite(values[post, other])
                 second = False
                 if reported is not None:
                     hits = reported[post, other].copy()
@@ -137,8 +143,9 @@ def arm_table(
                             "hop": hop,
                             "minutes": (step + 1) * BIN_MINUTES,
                             "observed": float(speed),
-                            "baseline": level,
-                            "delta": float(speed) - level,
+                            "baseline": float(level),
+                            "trend": float(trends[origin, other]),
+                            "delta": float(speed) - float(level),
                             "other_crash": second,
                         }
                     )
@@ -148,7 +155,39 @@ def arm_table(
             "no window has a ring road with a crash-free, observed pre-event span; "
             "check the event table and --exposure-hops"
         )
-    return table
+    availability = pd.DataFrame(
+        {
+            "hop": np.repeat(np.arange(hops + 1), horizon),
+            "minutes": np.tile((np.arange(horizon) + 1) * BIN_MINUTES, hops + 1),
+            "eligible": np.repeat(eligible, horizon),
+            "observed": observed.ravel(),
+        }
+    )
+    return table, availability
+
+
+def nearest_on_target(crash_arm: pd.DataFrame, control_arm: pd.DataFrame) -> pd.DataFrame:
+    """Keep, per (event, ring road), the control window closest on that road's
+    own pre-event level and trend.
+
+    The draw in `events.event_datasets` matches the crash road, so the ring
+    roads the hop effects are measured on are matched on nothing, and one
+    control week cannot be closest for all of them at once.
+    """
+    keys = ["event_id", "road"]
+    stats = ["baseline", "trend"]
+    target = crash_arm.groupby(keys, as_index=False)[stats].first()
+    candidates = control_arm.groupby([*keys, "origin"], as_index=False)[stats].first()
+    gap = candidates.merge(target, on=keys, suffixes=("", "_crash"))
+    # Scaled, or the ~25 mph level would swamp the ~0.1 mph trend.
+    level_scale = max(float(crash_arm.baseline.std()), 1e-6)
+    trend_scale = max(float(crash_arm.trend.std()), 1e-6)
+    gap["distance"] = (
+        abs(gap.baseline - gap.baseline_crash) / level_scale
+        + abs(gap.trend - gap.trend_crash) / trend_scale
+    )
+    best = gap.loc[gap.groupby(keys).distance.idxmin(), [*keys, "origin"]]
+    return control_arm.merge(best, on=[*keys, "origin"])
 
 
 def event_study(
@@ -158,6 +197,7 @@ def event_study(
     edge_index: Tensor,
     hops: int = 2,
     reported: np.ndarray | None = None,
+    match_target: bool = False,
 ) -> pd.DataFrame:
     """Matched difference-in-differences, one row per (event, road, step).
 
@@ -169,13 +209,20 @@ def event_study(
     `did` is the estimate; `n_controls` says how many control windows stood
     behind it, and `other_crash` whether a second crash was reported on that
     road inside the window.
+
+    `match_target` narrows each ring road to its own nearest control instead of
+    averaging all of them; see `nearest_on_target`.
     """
-    crash_arm = arm_table(reference, events, edge_index, hops, reported)
+    crash_arm, crash_seen = arm_table(reference, events, edge_index, hops, reported)
     # No `reported` for the control arm: `require_clean_post` already rejects
     # any road whose post span is dirty, and a reported crash is always inside
     # that mask, so the flag is False on every control row and is dropped by the
     # groupby regardless.
-    control_arm = arm_table(reference, controls, edge_index, hops, require_clean_post=True)
+    control_arm, control_seen = arm_table(
+        reference, controls, edge_index, hops, require_clean_post=True
+    )
+    if match_target:
+        control_arm = nearest_on_target(crash_arm, control_arm)
     pooled = control_arm.groupby(["event_id", "road", "hop", "minutes"], as_index=False).agg(
         control_delta=("delta", "mean"), n_controls=("delta", "size")
     )
@@ -189,6 +236,12 @@ def event_study(
     )
     merged = merged.loc[merged["_merge"] == "both"].drop(columns="_merge")
     merged["did"] = merged["delta"] - merged["control_delta"]
+    # Records, not a frame: pandas carries `attrs` through merges and groupbys
+    # and compares the values, which is ambiguous for a DataFrame.
+    merged.attrs["availability"] = pd.concat(
+        [crash_seen.assign(arm="crash"), control_seen.assign(arm="control")],
+        ignore_index=True,
+    ).to_dict("records")
     return merged
 
 

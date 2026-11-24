@@ -82,12 +82,12 @@ A coding agent can implement each workstream independently against the frozen in
 
 **Purpose:** Assess whether apparent neighboring-road slowdowns are distinguishable from pre-existing/shared congestion.
 
-- [ ] Re-evaluate **the target neighbor's own** pre-crash speed level and trend, not only the crash road's; save balance before and after new control selection.
-- [ ] Add target-road-specific matched or reweighted controls based on pre-event speed/trend, hour/day/season and comparable road conditions; document overlap and attrition.
+- [x] Re-evaluate **the target neighbor's own** pre-crash speed level and trend, not only the crash road's; save balance before and after new control selection. `arm_table` carries each ring road's own level and trend; `causal.nearest_on_target` selects on them. Balance tables need the run.
+- [x] Add target-road-specific matched or reweighted controls based on pre-event speed/trend, hour/day/season and comparable road conditions; document overlap and attrition. `event_study.py --match-target`; the slot of the week is already matched. Attrition needs the run.
 - [ ] Add 2–3 pre-event pseudo-crash/placebo times and one unrelated/unexposed-road comparison where logically valid; preserve sign, CI, and placebo-to-effect magnitude ratio as a diagnostic, **not** a probability.
 - [ ] Exclude or flag concurrent reported crashes on target/adjacent roads during the full input/outcome window; compare with original sample.
 - [ ] Report **available-case and fixed-event-cohort** 0/1/2-hop trajectories with event-level 95% intervals, per-horizon events, roads, controls, and denominators.
-- [ ] Audit speed availability by exposed/control status, hop, and event-time bin; test whether crash exposure predicts missingness. Keep observed `0 mph` separate from unavailable readings.
+- [x] Audit speed availability by exposed/control status, hop, and event-time bin; test whether crash exposure predicts missingness. Keep observed `0 mph` separate from unavailable readings. `event_study.py` writes `availability.csv`; the test across arms needs the run.
 - [x] Document a stopping rule: do not repeatedly tune matching until placebo effects look small; keep both original and revised specifications. In `docs/experiments.md`.
 
 **Deliverables:** `outputs/identification-runA/` with balance/attrition tables, `hop_effects.csv`, placebo results, missingness diagnostics and 1–2 publication-ready figures.
@@ -120,7 +120,7 @@ A coding agent can implement each workstream independently against the frozen in
 
 **Purpose:** Test effect estimation when both potential outcomes and network exposure are known.
 
-- [ ] Keep original **Benchmark 0** (200-event additive injection) for continuity; clearly state its forecast-error identity.
+- [x] Keep original **Benchmark 0** (200-event additive injection) for continuity; clearly state its forecast-error identity. It is the default; the identity is in `docs/methodology.md` and pinned by `test_synthetic.test_differencing_the_two_arms_is_degenerate_by_construction`.
 - [x] **Benchmark 1: synthetic null.** Direct crash-road slowdown but **zero true 1/2-hop effect**; measure spurious neighbor estimates and their intervals. `--hop-decay 0`, no new generator; queued as `synthetic-scenarios` task 0. **Awaiting its run.**
 - [ ] **Benchmark 2: propagation.** Known 0/1/2-hop decay, temporal onset/duration, and at least two prespecified intervention magnitudes; measure effects by hop and horizon.
 - [ ] **Benchmark 3: confounded assignment (valuable).** Compare random placement with assignment dependent only on pre-crash congestion; quantify bias and overlap. Treat as sensitivity, not proof of real-data identification.
@@ -196,12 +196,12 @@ A coding agent can implement each workstream independently against the frozen in
 
 ## 8. Reproducibility, automation, and quality checks
 
-- [ ] Automated scripts produce all labels/cohorts/figures/tables; no hand-assigned crash outcomes or counterfactuals.
-- [ ] Every output folder contains frozen configuration, source revision or code snapshot, data manifests, seeds, sample counts and flags.
+- [x] Automated scripts produce all labels/cohorts/figures/tables; no hand-assigned crash outcomes or counterfactuals.
+- [x] Every output folder contains frozen configuration, source revision or code snapshot, data manifests, seeds, sample counts and flags. Each entry point writes `summary.json` with args, `code_version` and `data_version`; `scripts/hpc/run.sh` adds the source snapshot.
 - [x] Row IDs, speeds, outcomes, treatment exposures and graphs are unchanged across paired methods except for the single dimension intentionally ablated.
 - [x] Test splits exclude overlapping future targets and contaminated control histories; event-clustered uncertainty treats roads/horizons as dependent.
 - [x] Synthetic ground truth is defined independently of which model happens to perform best; evaluate on held-out interventions.
-- [ ] Clear denominator for every result (crashes, unique events, roads, road-time cells, matched controls). Separate full, observed, and fixed cohorts.
+- [x] Clear denominator for every result (crashes, unique events, roads, road-time cells, matched controls). Separate full, observed, and fixed cohorts. `summarise` reports events, roads and cells; `n_controls` the matched controls; `availability.csv` the observed share; the fixed cohort is its own table.
 - [x] Missing readings are masked; `0 mph` sensitivity is explicitly a changed measurement convention and possibly changed population.
 - [ ] All paper numbers are read from saved machine-readable outputs. Generate a result index showing which source file populates which manuscript table/figure.
 - [ ] Compare the final paper to the original proposal's three questions and two hypotheses; explain changes as methodological refinements rather than invented new goals.
