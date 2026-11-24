@@ -28,7 +28,7 @@ submit() {
     job=$(sbatch --parsable --account=nssac_students --partition="$partition" \
         --nodes=1 --ntasks=1 --cpus-per-task=4 --mem="$memory" --time="$duration" \
         --job-name="traffic-$stage" --dependency="$dependencies" --kill-on-invalid-dep=yes \
-        --output="$logs/$stage-%A_%a.log" "${extra[@]}" \
+        --output="$logs/$stage-%A_%a.log" ${extra[@]+"${extra[@]}"} \
         scripts/hpc/run.sh "$logs/meta" "${command[@]}")
     job=${job%%;*}
     [[ "$job" =~ ^[0-9]+$ ]]
