@@ -197,7 +197,7 @@ A coding agent can implement each workstream independently against the frozen in
 ## 8. Reproducibility, automation, and quality checks
 
 - [ ] Automated scripts produce all labels/cohorts/figures/tables; no hand-assigned crash outcomes or counterfactuals.
-- [ ] Every output folder contains frozen configuration, source revision or code snapshot, data manifests, seeds, sample counts and flags.
+- [x] Every output folder contains frozen configuration, source revision or code snapshot, data manifests, seeds, sample counts and flags. Each entry point writes `summary.json` with args, `code_version` and `data_version`; `scripts/hpc/run.sh` adds the source snapshot.
 - [x] Row IDs, speeds, outcomes, treatment exposures and graphs are unchanged across paired methods except for the single dimension intentionally ablated.
 - [x] Test splits exclude overlapping future targets and contaminated control histories; event-clustered uncertainty treats roads/horizons as dependent.
 - [x] Synthetic ground truth is defined independently of which model happens to perform best; evaluate on held-out interventions.
