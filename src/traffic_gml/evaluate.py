@@ -254,24 +254,31 @@ def placebo_corrected(event: pd.DataFrame, control: pd.DataFrame) -> pd.DataFram
     This is the estimate the proposal defines: the control arm is not a second
     finding, it is the forecaster's own bias on windows where nothing happened,
     and it has to be subtracted rather than displayed beside the crash arm.
-    The interval is event-level only while each crash contributes one row per
-    bin; add clustering before trusting it with neighbour roads in play.
+
+    Both arms are averaged within a crash before aggregating, so a crash that
+    happened to draw more control windows does not weigh more, and the
+    interval comes from the spread across crashes rather than across
+    correlated cells inside them. `events` is the sample size, not `n`.
     """
     rows = []
     for minutes in sorted(event.minutes.unique()):
-        a = event.loc[event.minutes == minutes, "effect"]
-        b = control.loc[control.minutes == minutes, "effect"]
-        effect = a.mean() - b.mean()
-        spread = 1.96 * float(np.hypot(a.sem(), b.sem()))
+        cells = event[event.minutes == minutes]
+        per_crash = cells.groupby("crash_record_id")["effect"].mean()
+        per_control = (
+            control.loc[control.minutes == minutes].groupby("crash_record_id")["effect"].mean()
+        )
+        effect = per_crash.mean() - per_control.mean()
+        spread = 1.96 * float(np.hypot(per_crash.sem(), per_control.sem()))
         rows.append(
             {
                 "minutes": int(minutes),
-                "crash": round(a.mean(), 3),
-                "control": round(b.mean(), 3),
+                "crash": round(per_crash.mean(), 3),
+                "control": round(per_control.mean(), 3),
                 "effect": round(effect, 3),
                 "low": round(effect - spread, 3),
                 "high": round(effect + spread, 3),
-                "n": int(len(a)),
+                "events": int(len(per_crash)),
+                "n": int(len(cells)),
             }
         )
     return pd.DataFrame(rows)
