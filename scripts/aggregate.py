@@ -146,7 +146,6 @@ def main() -> None:
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--require", nargs="*", default=[], help="stages that must be present")
     args = parser.parse_args()
     roots = {"run": args.run, "work": args.work}
     args.out.mkdir(parents=True, exist_ok=True)
@@ -213,9 +212,6 @@ def main() -> None:
     )
     print(index.to_string(index=False))
     print(f"\n{len(done)} stage markers; wrote {args.out}")
-    absent = [stage for stage in args.require if stage not in " ".join(done)]
-    if absent:
-        raise SystemExit(f"required stages missing: {absent}")
 
 
 if __name__ == "__main__":

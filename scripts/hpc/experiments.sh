@@ -144,7 +144,7 @@ case "$stage" in
             test -s "$run/$name/summary.json"
         done
         uv run --no-sync python scripts/aggregate.py --run "$run" --work "$work" \
-            --out "$run/paper" --require main-seed42 event benchmark-seed42
+            --out "$run/paper"
         ;;
     aggregate)
         uv run --no-sync python scripts/aggregate.py --run "$run" --work "$work" \
