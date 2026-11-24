@@ -66,13 +66,16 @@ def test_submit_queues_one_resumable_dependency_graph(tmp_path):
         PATH=f"{binary}:{os.environ['PATH']}",
         SUBMISSION_LOG=str(log),
         MIN_FREE_GB="0",
+        GPU_GRES="gpu:test:1",
     )
     outputs = root / "outputs/hpc" / name
     try:
         first = subprocess.run(
             command, cwd=root, env=env, capture_output=True, text=True, check=True
         )
-        calls = json.loads(log.read_text())
+        # Preflight asks sbatch --test-only whether each shape is acceptable;
+        # those are validations, not submissions.
+        calls = [a for a in json.loads(log.read_text()) if "--test-only" not in a]
         stages = [
             next(a for a in args if a.startswith("--job-name=")).removeprefix("--job-name=traffic-")
             for args in calls
@@ -88,7 +91,7 @@ def test_submit_queues_one_resumable_dependency_graph(tmp_path):
             assert "--kill-on-invalid-dep=yes" in args
             expected = "afterany:" if stage in {"aggregate", "finish"} else "afterok:"
             assert dependency.startswith(f"--dependency={expected}"), stage
-            if "--gres=gpu:a100:1" in args:
+            if "--gres=gpu:test:1" in args:
                 for arg in args:
                     if arg.startswith("--array="):
                         assert arg.endswith("%2"), stage
@@ -97,12 +100,14 @@ def test_submit_queues_one_resumable_dependency_graph(tmp_path):
         again = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)
         assert again.returncode != 0
         assert "--resume" in again.stderr
-        assert len(json.loads(log.read_text())) == len(calls)
+        submitted = [a for a in json.loads(log.read_text()) if "--test-only" not in a]
+        assert len(submitted) == len(calls)
 
         resumed = subprocess.run(
             [*command, "--resume"], cwd=root, env=env, capture_output=True, text=True, check=True
         )
-        assert len(json.loads(log.read_text())) == 2 * len(calls)
+        submitted = [a for a in json.loads(log.read_text()) if "--test-only" not in a]
+        assert len(submitted) == 2 * len(calls)
         assert "manifest" in resumed.stdout
         assert first.stdout
     finally:

@@ -17,20 +17,30 @@ lists every value you supply and how to find it.
 | GPU partition | `sinfo -o '%P %G' \| grep gpu` | `GPU_PARTITION` |
 | GPU type | the `%G` column above, e.g. `gpu:a100:1` | `GPU_GRES` |
 
-The repository currently defaults to `ACCOUNT=nssac_students`,
-`CPU_PARTITION=standard`, `GPU_PARTITION=gpu`, `GPU_GRES=gpu:a100:1`. **Check
-them against the commands above before your first submission.** They are the
-values already committed to this repository, not values anyone verified for
-your account. Export whatever differs:
+The repository defaults to `ACCOUNT=nssac_students`, `CPU_PARTITION=standard`,
+`GPU_PARTITION=interactive`, `GPU_GRES=gpu:rtx_3090:1`, with GPU jobs asking for
+`GPU_TIME=12:00:00` and `GPU_MEM=64G` because `interactive` caps wall time at
+twelve hours. **Check these against the commands above before your first
+submission.** They are the values committed to this repository, not values
+verified for your account. Export whatever differs:
 
 ```bash
 export ACCOUNT=your_allocation
 export CPU_PARTITION=your_cpu_partition
-export GPU_PARTITION=your_gpu_partition
-export GPU_GRES=gpu:a100:1
+export GPU_PARTITION=interactive
+export GPU_GRES=gpu:rtx_3090:1
 ```
 
-Put those four lines in `~/.bashrc` so every later step inherits them.
+Put those lines in `~/.bashrc` so every later step inherits them.
+
+You do not have to get this right by inspection. Preflight asks Slurm itself,
+with `sbatch --test-only`, whether it would accept the CPU and GPU shapes, and
+refuses to queue anything if either is rejected. A wrong partition or an
+over-limit wall time stops the submission before a single job is queued, and
+prints Slurm's own error.
+
+Other knobs, all optional: `GPU_TIME`, `GPU_MEM`, `CPU_MEM`, `CPU_TIME`,
+`PREPARE_TIME`, `GPU_CONCURRENCY` (default 2), `MIN_FREE_GB` (default 200).
 
 ## 1. Log in
 
@@ -231,13 +241,27 @@ separated from pre-existing differences.
 
 Primary results are queued first, so a wall-time loss costs the least
 important work. GPU arrays run two at a time; raise it with
-`GPU_CONCURRENCY=4` if your allocation allows.
+`GPU_CONCURRENCY=4` if your allocation allows, or drop it to 1 if `interactive`
+limits how many jobs you may hold.
+
+**If a stage runs out of the twelve hours**, it leaves no marker and `--resume`
+runs it again, which only helps if it can finish next time. `main` and
+`benchmark` are the likeliest to be tight, because each trains several models
+in one process with no mid-run checkpoint. If one keeps hitting the limit, move
+just that attempt to a partition with a longer ceiling and resume; every
+finished stage is skipped:
+
+```bash
+GPU_PARTITION=your_long_partition GPU_GRES=gpu:a100:1 GPU_TIME=24:00:00 \
+  bash scripts/hpc/submit.sh --name runA --resume
+```
 
 ## Why this is several jobs and not one
 
-One `sbatch` job cannot hold the matrix. The GPU work alone is 36 tasks, each
-allowed up to 24 hours, which exceeds any single job's wall-time limit; a
-single job would also hold a GPU idle through every CPU stage. `submit.sh` is
+One `sbatch` job cannot hold the matrix. The GPU work alone is 36 tasks, and
+`interactive` allows twelve hours per job, so the matrix cannot fit in one job
+however it is arranged; a single job would also hold a GPU idle through every
+CPU stage. `submit.sh` is
 therefore one command that queues a dependency graph, which is the closest
 practical equivalent and needs no manual coordination between stages.
 

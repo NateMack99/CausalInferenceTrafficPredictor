@@ -14,12 +14,17 @@
 set -euo pipefail
 ACCOUNT=${ACCOUNT:-nssac_students}
 CPU_PARTITION=${CPU_PARTITION:-standard}
-GPU_PARTITION=${GPU_PARTITION:-gpu}
-GPU_GRES=${GPU_GRES:-gpu:a100:1}
+GPU_PARTITION=${GPU_PARTITION:-interactive}
+GPU_GRES=${GPU_GRES:-gpu:rtx_3090:1}
 GPU_CONCURRENCY=${GPU_CONCURRENCY:-2}
 CPU_MEM=${CPU_MEM:-128G}
 MIN_FREE_GB=${MIN_FREE_GB:-200}
-GPU_MEM=${GPU_MEM:-128G}
+GPU_MEM=${GPU_MEM:-64G}
+# interactive caps wall time at 12 hours. A stage killed at the limit leaves no
+# marker, so --resume simply runs it again.
+GPU_TIME=${GPU_TIME:-12:00:00}
+CPU_TIME=${CPU_TIME:-04:00:00}
+PREPARE_TIME=${PREPARE_TIME:-12:00:00}
 
 name=run-$(date -u +%Y%m%dT%H%M%SZ)
 resume=no
@@ -51,12 +56,23 @@ test -f uv.lock || { echo "run from the project root" >&2; exit 1; }
 test -f data/chicago-traffic-segments.json || {
     echo "data/chicago-traffic-segments.json missing; copy it over first" >&2; exit 1
 }
-sinfo -h -p "$CPU_PARTITION" -o %P >/dev/null || {
-    echo "partition $CPU_PARTITION not available; set CPU_PARTITION" >&2; exit 1
-}
-sinfo -h -p "$GPU_PARTITION" -o %P >/dev/null || {
-    echo "partition $GPU_PARTITION not available; set GPU_PARTITION" >&2; exit 1
-}
+# Ask Slurm whether it would accept each shape, rather than reimplementing its
+# limits. A rejection mid-submission would leave half a dependency graph queued.
+for shape in "cpu $CPU_PARTITION $CPU_MEM $PREPARE_TIME" "gpu $GPU_PARTITION $GPU_MEM $GPU_TIME"; do
+    read -r kind partition memory duration <<<"$shape"
+    gres=()
+    [[ "$kind" != gpu ]] || gres=(--gres="$GPU_GRES")
+    if ! sbatch --test-only --account="$ACCOUNT" --partition="$partition" \
+        --nodes=1 --ntasks=1 --cpus-per-task=4 --mem="$memory" --time="$duration" \
+        ${gres[@]+"${gres[@]}"} --wrap=true >/dev/null 2>"${TMPDIR:-/tmp}/traffic-preflight.$$"; then
+        echo "Slurm would reject the $kind shape:" >&2
+        sed 's/^/  /' "${TMPDIR:-/tmp}/traffic-preflight.$$" >&2
+        echo "  account=$ACCOUNT partition=$partition mem=$memory time=$duration" >&2
+        rm -f "${TMPDIR:-/tmp}/traffic-preflight.$$"
+        exit 1
+    fi
+    rm -f "${TMPDIR:-/tmp}/traffic-preflight.$$"
+done
 free_gb=$(df -Pk . | awk 'NR == 2 {print int($4 / 1048576)}')
 (( free_gb >= MIN_FREE_GB )) || {
     echo "only ${free_gb}G free here; Run A needs about ${MIN_FREE_GB}G." >&2
@@ -64,7 +80,8 @@ free_gb=$(df -Pk . | awk 'NR == 2 {print int($4 / 1048576)}')
     exit 1
 }
 mkdir -p "$run/.done" "$logs/meta"
-echo "account=$ACCOUNT  cpu=$CPU_PARTITION  gpu=$GPU_PARTITION/$GPU_GRES  free=${free_gb}G"
+echo "account=$ACCOUNT  cpu=$CPU_PARTITION  gpu=$GPU_PARTITION/$GPU_GRES"
+echo "gpu time=$GPU_TIME mem=$GPU_MEM  free=${free_gb}G"
 
 manifest=$root/manifest-$(date -u +%Y%m%dT%H%M%SZ).tsv
 printf 'stage\tjob_id\tdependency\tlog\n' > "$manifest"
@@ -111,25 +128,25 @@ if [[ "$smoke" == yes ]]; then
     exit 0
 fi
 
-prepare=$(submit prepare cpu 12:00:00 "afterok:$verify")
+prepare=$(submit prepare cpu "$PREPARE_TIME" "afterok:$verify")
 audit=$(submit audit cpu 00:15:00 "afterok:$prepare")
 
 # Primary Run A results first, then the decisive paired comparisons, then
 # sensitivity arms, so a wall-time loss costs the least important work.
-main=$(submit main gpu 24:00:00 "afterok:$audit")
-event=$(submit event cpu 04:00:00 "afterok:$audit")
-benchmark=$(submit benchmark gpu 24:00:00 "afterok:$audit")
+main=$(submit main gpu "$GPU_TIME" "afterok:$audit")
+event=$(submit event cpu "$CPU_TIME" "afterok:$audit")
+benchmark=$(submit benchmark gpu "$GPU_TIME" "afterok:$audit")
 report=$(submit report cpu 00:30:00 "afterok:$main:$event:$benchmark")
 
-treatment=$(submit treatment gpu 24:00:00 "afterok:$report" '0-2')
-ablation=$(submit graph-ablation gpu 24:00:00 "afterok:$report" '0-11')
+treatment=$(submit treatment gpu "$GPU_TIME" "afterok:$report" '0-2')
+ablation=$(submit graph-ablation gpu "$GPU_TIME" "afterok:$report" '0-11')
 
-matching=$(submit matching cpu 04:00:00 "afterok:$report" '0-5')
-zero_main=$(submit main-nozero gpu 24:00:00 "afterok:$ablation")
-zero_event=$(submit event-nozero cpu 04:00:00 "afterok:$report")
-zero_benchmark=$(submit benchmark-nozero gpu 24:00:00 "afterok:$zero_main")
-scenarios=$(submit synthetic-scenarios gpu 24:00:00 "afterok:$zero_benchmark" '0-8')
-seeds=$(submit forecast-seeds gpu 24:00:00 "afterok:$scenarios" '0-7')
+matching=$(submit matching cpu "$CPU_TIME" "afterok:$report" '0-5')
+zero_main=$(submit main-nozero gpu "$GPU_TIME" "afterok:$ablation")
+zero_event=$(submit event-nozero cpu "$CPU_TIME" "afterok:$report")
+zero_benchmark=$(submit benchmark-nozero gpu "$GPU_TIME" "afterok:$zero_main")
+scenarios=$(submit synthetic-scenarios gpu "$GPU_TIME" "afterok:$zero_benchmark" '0-8')
+seeds=$(submit forecast-seeds gpu "$GPU_TIME" "afterok:$scenarios" '0-7')
 
 every="$audit:$main:$event:$benchmark:$report:$treatment:$ablation:$matching"
 every="$every:$zero_main:$zero_event:$zero_benchmark:$scenarios:$seeds"
