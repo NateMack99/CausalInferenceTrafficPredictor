@@ -120,7 +120,7 @@ A coding agent can implement each workstream independently against the frozen in
 
 **Purpose:** Test effect estimation when both potential outcomes and network exposure are known.
 
-- [ ] Keep original **Benchmark 0** (200-event additive injection) for continuity; clearly state its forecast-error identity.
+- [x] Keep original **Benchmark 0** (200-event additive injection) for continuity; clearly state its forecast-error identity. It is the default; the identity is in `docs/methodology.md` and pinned by `test_synthetic.test_differencing_the_two_arms_is_degenerate_by_construction`.
 - [x] **Benchmark 1: synthetic null.** Direct crash-road slowdown but **zero true 1/2-hop effect**; measure spurious neighbor estimates and their intervals. `--hop-decay 0`, no new generator; queued as `synthetic-scenarios` task 0. **Awaiting its run.**
 - [ ] **Benchmark 2: propagation.** Known 0/1/2-hop decay, temporal onset/duration, and at least two prespecified intervention magnitudes; measure effects by hop and horizon.
 - [ ] **Benchmark 3: confounded assignment (valuable).** Compare random placement with assignment dependent only on pre-crash congestion; quantify bias and overlap. Treat as sensitivity, not proof of real-data identification.
@@ -196,12 +196,12 @@ A coding agent can implement each workstream independently against the frozen in
 
 ## 8. Reproducibility, automation, and quality checks
 
-- [ ] Automated scripts produce all labels/cohorts/figures/tables; no hand-assigned crash outcomes or counterfactuals.
+- [x] Automated scripts produce all labels/cohorts/figures/tables; no hand-assigned crash outcomes or counterfactuals.
 - [x] Every output folder contains frozen configuration, source revision or code snapshot, data manifests, seeds, sample counts and flags. Each entry point writes `summary.json` with args, `code_version` and `data_version`; `scripts/hpc/run.sh` adds the source snapshot.
 - [x] Row IDs, speeds, outcomes, treatment exposures and graphs are unchanged across paired methods except for the single dimension intentionally ablated.
 - [x] Test splits exclude overlapping future targets and contaminated control histories; event-clustered uncertainty treats roads/horizons as dependent.
 - [x] Synthetic ground truth is defined independently of which model happens to perform best; evaluate on held-out interventions.
-- [ ] Clear denominator for every result (crashes, unique events, roads, road-time cells, matched controls). Separate full, observed, and fixed cohorts.
+- [x] Clear denominator for every result (crashes, unique events, roads, road-time cells, matched controls). Separate full, observed, and fixed cohorts. `summarise` reports events, roads and cells; `n_controls` the matched controls; `availability.csv` the observed share; the fixed cohort is its own table.
 - [x] Missing readings are masked; `0 mph` sensitivity is explicitly a changed measurement convention and possibly changed population.
 - [ ] All paper numbers are read from saved machine-readable outputs. Generate a result index showing which source file populates which manuscript table/figure.
 - [ ] Compare the final paper to the original proposal's three questions and two hypotheses; explain changes as methodological refinements rather than invented new goals.
