@@ -62,6 +62,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="draw controls at random instead of matching on pre-event level and trend",
     )
     parser.add_argument(
+        "--match-target",
+        action="store_true",
+        help="match each ring road on its own pre-event level and trend",
+    )
+    parser.add_argument(
         "--match-hops",
         type=int,
         default=0,
@@ -135,7 +140,15 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
     print(f"{len(events):,} events, {len(control):,} control pairs, {train.num_roads} roads")
 
     reported = reported_cells(tables["crashes"], train.times, segment_ids)
-    did = event_study(train, events, control, edge_index, hops=args.hops, reported=reported)
+    did = event_study(
+        train,
+        events,
+        control,
+        edge_index,
+        hops=args.hops,
+        reported=reported,
+        match_target=args.match_target,
+    )
     available = summarise(did)
     cohort = fixed_cohort(did)
     overlapping = did["other_crash"].mean()

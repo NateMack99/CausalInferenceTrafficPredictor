@@ -82,8 +82,8 @@ A coding agent can implement each workstream independently against the frozen in
 
 **Purpose:** Assess whether apparent neighboring-road slowdowns are distinguishable from pre-existing/shared congestion.
 
-- [ ] Re-evaluate **the target neighbor's own** pre-crash speed level and trend, not only the crash road's; save balance before and after new control selection.
-- [ ] Add target-road-specific matched or reweighted controls based on pre-event speed/trend, hour/day/season and comparable road conditions; document overlap and attrition.
+- [x] Re-evaluate **the target neighbor's own** pre-crash speed level and trend, not only the crash road's; save balance before and after new control selection. `arm_table` carries each ring road's own level and trend; `causal.nearest_on_target` selects on them. Balance tables need the run.
+- [x] Add target-road-specific matched or reweighted controls based on pre-event speed/trend, hour/day/season and comparable road conditions; document overlap and attrition. `event_study.py --match-target`; the slot of the week is already matched. Attrition needs the run.
 - [ ] Add 2–3 pre-event pseudo-crash/placebo times and one unrelated/unexposed-road comparison where logically valid; preserve sign, CI, and placebo-to-effect magnitude ratio as a diagnostic, **not** a probability.
 - [ ] Exclude or flag concurrent reported crashes on target/adjacent roads during the full input/outcome window; compare with original sample.
 - [ ] Report **available-case and fixed-event-cohort** 0/1/2-hop trajectories with event-level 95% intervals, per-horizon events, roads, controls, and denominators.

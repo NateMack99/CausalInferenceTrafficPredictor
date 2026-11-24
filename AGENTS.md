@@ -10,16 +10,20 @@ Read `README.md`, `PROJECT_ROADMAP.md`, and the relevant file in `docs/` before 
 - Reuse the schemas in `docs/architecture.md` and `docs/data.md`.
 
 ## Style
-Human readability is the primary constraint. Be aggressively minimalist.
-- Write the minimum code the requirement needs. Prefer deletion over addition.
+Strict minimalism outranks every other convention here, subject only to
+correctness and security. Human cognitive load is the constraint; verbosity is a
+defect.
+- Implement exactly what is required. When in doubt, leave it out.
 - Functional core, imperative shell: keep logic pure, push I/O to the edges.
-- No speculative features, unrequested flexibility, or defensive checks for
-  conditions that cannot occur. Trust internal contracts, validate boundaries.
-- Comment only what the code cannot express.
-- Write the fewest tests that give confidence. Avoid redundant coverage.
-- Do not cut lines with clever syntax or cryptic names.
-- Treat every added line as a maintenance liability. Code must stay small
-  enough for a human to review comfortably without AI.
+- Delete abstractions, wrappers, helpers and indirection rather than add them.
+- No speculative features, premature generalisation, or configurability nobody
+  asked for. No redundant validation or imaginary failure cases.
+- Comments and docstrings are unnecessary by default. Keep only non-obvious
+  intent.
+- Write only essential tests. Coverage is not a goal.
+- Reduce cognitive complexity, not line count. Never compress for brevity.
+- The burden of proof is on adding or keeping code, not removing it. Finish with
+  a simplification pass and delete whatever is not required.
 
 ## Research rules
 - No post-event inputs for no-accident counterfactual forecasting.

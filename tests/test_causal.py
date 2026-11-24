@@ -19,6 +19,7 @@ from traffic_gml.causal import (
     covariate_balance,
     event_study,
     fixed_cohort,
+    nearest_on_target,
     pre_trends,
     reported_cells,
     summarise,
@@ -288,3 +289,27 @@ def test_placebo_corrected_weights_every_crash_equally():
     assert row.effect == -1.5
     assert row.events == 2
     assert row.n == 2
+
+
+def test_nearest_on_target_picks_each_road_its_own_closest_control():
+    crash = pd.DataFrame(
+        {
+            "event_id": ["E", "E"],
+            "road": [0, 1],
+            "baseline": [30.0, 20.0],
+            "trend": [0.0, 0.0],
+        }
+    )
+    control = pd.DataFrame(
+        {
+            "event_id": ["E"] * 4,
+            "origin": [100, 200, 100, 200],
+            "road": [0, 0, 1, 1],
+            "baseline": [31.0, 40.0, 25.0, 20.5],
+            "trend": [0.0] * 4,
+        }
+    )
+    kept = nearest_on_target(crash, control)
+    # Road 1's nearest control is a different week from road 0's, which is the
+    # point: one control week cannot be closest for every ring road.
+    assert sorted(zip(kept.road, kept.origin, strict=True)) == [(0, 100), (1, 200)]

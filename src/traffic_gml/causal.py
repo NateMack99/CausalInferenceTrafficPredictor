@@ -93,6 +93,7 @@ def arm_table(
     clean = reference.clean.numpy()
     history, horizon = reference.history, reference.horizon
     rings = hop_rings(edge_index, reference.num_roads, hops)
+    levels, trends = pre_event_stats(values, history)
 
     rows: list[dict] = []
     for event_id, road, origin in zip(
@@ -111,11 +112,9 @@ def arm_table(
                     continue
                 if require_clean_post and not clean[post, other].all():
                     continue
-                baseline = values[pre, other]
-                baseline = baseline[np.isfinite(baseline)]
-                if not baseline.size:
+                level = levels[origin, other]
+                if not np.isfinite(level):
                     continue
-                level = float(baseline.mean())
                 second = False
                 if reported is not None:
                     hits = reported[post, other].copy()
@@ -137,8 +136,9 @@ def arm_table(
                             "hop": hop,
                             "minutes": (step + 1) * BIN_MINUTES,
                             "observed": float(speed),
-                            "baseline": level,
-                            "delta": float(speed) - level,
+                            "baseline": float(level),
+                            "trend": float(trends[origin, other]),
+                            "delta": float(speed) - float(level),
                             "other_crash": second,
                         }
                     )
@@ -151,6 +151,30 @@ def arm_table(
     return table
 
 
+def nearest_on_target(crash_arm: pd.DataFrame, control_arm: pd.DataFrame) -> pd.DataFrame:
+    """Keep, per (event, ring road), the one control window whose own pre-event
+    level and trend on *that* road are closest to the crash window's.
+
+    `events.event_datasets` matches on the crash road, so the neighbour roads
+    where the hop effects are measured are matched on nothing. One control week
+    cannot be closest for the crash road and thirty ring roads at once, so the
+    choice is made per road here instead, from the controls already drawn.
+    """
+    keys = ["event_id", "road"]
+    target = crash_arm.groupby(keys, as_index=False)[["baseline", "trend"]].first()
+    candidates = control_arm.groupby([*keys, "origin"], as_index=False)[
+        ["baseline", "trend"]
+    ].first()
+    gap = candidates.merge(target, on=keys, suffixes=("", "_crash"))
+    scale = [max(float(crash_arm[column].std()), 1e-6) for column in ("baseline", "trend")]
+    gap["distance"] = (
+        abs(gap.baseline - gap.baseline_crash) / scale[0]
+        + abs(gap.trend - gap.trend_crash) / scale[1]
+    )
+    best = gap.loc[gap.groupby(keys).distance.idxmin(), [*keys, "origin"]]
+    return control_arm.merge(best, on=[*keys, "origin"])
+
+
 def event_study(
     reference: Windows,
     events: pd.DataFrame,
@@ -158,6 +182,7 @@ def event_study(
     edge_index: Tensor,
     hops: int = 2,
     reported: np.ndarray | None = None,
+    match_target: bool = False,
 ) -> pd.DataFrame:
     """Matched difference-in-differences, one row per (event, road, step).
 
@@ -169,6 +194,9 @@ def event_study(
     `did` is the estimate; `n_controls` says how many control windows stood
     behind it, and `other_crash` whether a second crash was reported on that
     road inside the window.
+
+    `match_target` narrows each ring road to its own nearest control instead of
+    averaging all of them; see `nearest_on_target`.
     """
     crash_arm = arm_table(reference, events, edge_index, hops, reported)
     # No `reported` for the control arm: `require_clean_post` already rejects
@@ -176,6 +204,8 @@ def event_study(
     # that mask, so the flag is False on every control row and is dropped by the
     # groupby regardless.
     control_arm = arm_table(reference, controls, edge_index, hops, require_clean_post=True)
+    if match_target:
+        control_arm = nearest_on_target(crash_arm, control_arm)
     pooled = control_arm.groupby(["event_id", "road", "hop", "minutes"], as_index=False).agg(
         control_delta=("delta", "mean"), n_controls=("delta", "size")
     )

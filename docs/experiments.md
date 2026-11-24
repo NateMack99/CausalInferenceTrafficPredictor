@@ -35,6 +35,7 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | Event-study rings | 2, must not exceed `--exposure-hops` | `event_study.py --hops` |
 | Event-study controls | 5 per crash, held-out rule waived | `event_study.py --controls` |
 | Control matching | pre-event level and trend | `match_pre_event` |
+| Target-road matching | off | `event_study.py --match-target` |
 | Pre-trend placebo | 3 lead bins | `--leads` |
 
 Conventions that are not flags:
@@ -78,6 +79,13 @@ Conventions that are not flags:
   Control admissibility reads the same `crash_cells` grid that masks training
   cells, so the control no-exposure radius always equals `--exposure-hops`.
 
+- **`--match-target` matches the road an effect is measured on.** The control
+  draw matches the crash road, so the ring roads carrying the hop effects are
+  matched on nothing. `--match-target` keeps, per (event, ring road), the one
+  already-drawn control whose own pre-event level and trend on that road are
+  closest. It costs control supply: roughly one control per road instead of
+  four, so intervals widen. Off by default and no run has used it, so it is a
+  sensitivity check beside the default, not a replacement.
 - **Stopping rule for control matching.** Four rules have been tried and the
   record of all four stays in this file. Do not keep searching for a
   specification that shrinks the placebo: with one control draw per rule, the
