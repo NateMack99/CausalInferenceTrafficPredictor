@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=traffic-fetch
-#SBATCH --account=CHANGE_ME
+#SBATCH --account=nssac_students
 #SBATCH --partition=standard
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
@@ -33,7 +33,7 @@ echo "== crashes $START..$END =="
 CRASH_START="$START" CRASH_END="$END" bash scripts/fetch_data.sh --crashes-only
 
 echo "== manifest =="
-cat data/parquet/chicago-speeds/_conversion.json
+cat data/parquet/chicago-speeds-history/_conversion.json
 echo
 echo "If rows is exactly 50000000 the extract is truncated; report it."
 echo "Monthly chunks are in data/speed-chunks and the combined CSV in"

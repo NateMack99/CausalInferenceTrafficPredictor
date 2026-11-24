@@ -77,7 +77,7 @@ while read -r dataset low high; do
         continue
     fi
     echo "get   $low -> $high  $dataset"
-    curl --fail --show-error --compressed --retry 5 --retry-delay 10 --retry-all-errors \
+    curl --fail --show-error --compressed --retry 5 --retry-delay 10 \
         ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} \
         --output "$chunk.part" \
         "https://data.cityofchicago.org/resource/$dataset.csv?\$limit=10000000&\$select=time%2Csegment_id%2Cspeed&\$where=time%20%3E=%20%27${low}T00:00:00%27%20AND%20time%20%3C%20%27${high}T00:00:00%27"

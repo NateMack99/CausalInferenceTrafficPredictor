@@ -69,7 +69,7 @@ def build_graph(
         raise ValueError(
             "Crash data lacks coordinates. Run bash scripts/fetch_data.sh --crashes-only first."
         )
-    speeds, s0, s1 = _window(data_dir / "parquet/chicago-speeds", speed_window)
+    speeds, s0, s1 = _window(data_dir / "parquet/chicago-speeds-history", speed_window)
     graph = load_graph(data_dir / "speed_road_network.graphml")
     if only_80_percent:
         graph = graph.edge_subgraph(

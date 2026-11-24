@@ -26,7 +26,7 @@ if ! "$FETCH_PYTHON" -c 'import pandas, pyarrow' >/dev/null 2>&1; then
     exit 1
 fi
 if [[ "${1:-}" != "--crashes-only" ]]; then
-curl --fail --show-error --compressed --retry 3 --retry-delay 5 --retry-all-errors \
+curl --fail --show-error --compressed --retry 3 --retry-delay 5 \
   ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} \
   'https://data.cityofchicago.org/resource/4g9f-3jbs.csv?$limit=50000000&$select=time%2Csegment_id%2Cspeed&$where=time%20between%20%272025-01-01T00%3A00%3A00%27%20and%20%272026-01-01T00%3A00%3A00%27' \
   --output chicago-speeds.csv
@@ -36,13 +36,13 @@ fi
 # CRASH_START=2024-06-11 CRASH_END=2026-05-01 bash scripts/fetch_data.sh --crashes-only
 CRASH_START="${CRASH_START:-2025-01-01}"
 CRASH_END="${CRASH_END:-2026-01-01}"
-curl --fail --show-error --compressed --retry 3 --retry-delay 5 --retry-all-errors \
+curl --fail --show-error --compressed --retry 3 --retry-delay 5 \
   ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} \
   --output chicago-crashes.csv \
   "https://data.cityofchicago.org/resource/85ca-t3if.csv?\$limit=50000000&\$select=crash_record_id%2Ccrash_date%2Ccrash_type%2Cdamage%2Cstreet_no%2Cstreet_direction%2Cstreet_name%2Clatitude%2Clongitude&\$where=crash_date%20%3E=%20%27${CRASH_START}T00%3A00%3A00%27%20AND%20crash_date%20%3C%20%27${CRASH_END}T00%3A00%3A00%27"
 "$FETCH_PYTHON" "$SCRIPT_DIR/convert_to_parquet.py" chicago-crashes.csv --kind crashes --overwrite
 if [[ "${1:-}" != "--crashes-only" ]]; then
-    curl --fail --show-error --compressed --retry 3 --retry-delay 5 --retry-all-errors \
+    curl --fail --show-error --compressed --retry 3 --retry-delay 5 \
       'https://data.cityofchicago.org/resource/n4j6-wkkf.json?$limit=5000' \
       --output chicago-traffic-segments.json
     "$FETCH_PYTHON" "$SCRIPT_DIR/download_street_graph.py"

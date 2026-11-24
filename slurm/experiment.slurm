@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=traffic
-#SBATCH --account=CHANGE_ME
-#SBATCH --partition=gpu
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=48G
-#SBATCH --time=18:00:00
+#SBATCH --account=nssac_students
+#SBATCH --partition=interactive
+#SBATCH --gres=gpu:rtx_3090:1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --time=12:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.out
 #
@@ -64,7 +64,7 @@ else
     OVERWRITE=()
     [[ -d "$PROCESSED" ]] && OVERWRITE=(--overwrite-processed)
     uv run python scripts/experiment.py \
-        --speeds data/parquet/chicago-speeds --graph "$GRAPH" --crashes "$CRASHES" \
+        --speeds data/parquet/chicago-speeds-history --graph "$GRAPH" --crashes "$CRASHES" \
         --window "$START" "$END" \
         --static-features length_m degree betweenness \
         --epochs 20 --patience 4 --seed 42 --controls 5 --device auto \

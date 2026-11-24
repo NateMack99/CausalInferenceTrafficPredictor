@@ -1,0 +1,541 @@
+\documentclass[sigconf,nonacm]{acmart}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{array}
+\setlength{\emergencystretch}{2em}
+
+% ======================================================================
+% WORKING FINAL DRAFT / 24 NOVEMBER 2026
+% Figures and table cells marked PENDING are NOT observed results.
+% Keep the completed Run A measurements separate from later experiments.
+% Search for "FINAL UPDATE" to locate every required replacement.
+% Final submission: check 8-page ACM limit, authors, references, and figures.
+% ======================================================================
+\definecolor{pendinggray}{gray}{0.42}
+\newcommand{\pending}[1]{\textcolor{pendinggray}{\emph{[PENDING: #1]}}}
+\newcommand{\tbd}{\textcolor{pendinggray}{\textit{TBD}}}
+\newcommand{\figslot}[2]{%
+  \fbox{\begin{minipage}[c][#1][c]{0.92\columnwidth}
+  \centering\small\textcolor{pendinggray}{\textbf{[FIGURE PENDING]}}\\[5pt]
+  \textcolor{pendinggray}{#2}
+  \end{minipage}}}
+\newcommand{\widefigslot}[2]{%
+  \fbox{\begin{minipage}[c][#1][c]{0.92\textwidth}
+  \centering\small\textcolor{pendinggray}{\textbf{[FIGURE PENDING]}}\\[5pt]
+  \textcolor{pendinggray}{#2}
+  \end{minipage}}}
+
+\title[Counterfactual Traffic Accident Spillovers]{Causal Graph Learning for Counterfactual Estimation of Traffic Accident Spillovers}
+% Author block preserved from the original proposal. Confirm authorship
+% and contribution language before final submission.
+\author{Kyle Luong}
+\affiliation{\institution{University of Virginia}\city{Charlottesville}\state{Virginia}\country{USA}}
+\author{Nate Mackintosh}
+\affiliation{\institution{University of Virginia}\city{Charlottesville}\state{Virginia}\country{USA}}
+\author{Maddox Shrum}
+\affiliation{\institution{University of Virginia}\city{Charlottesville}\state{Virginia}\country{USA}}
+\renewcommand{\shortauthors}{Luong et al.}
+
+\begin{document}
+
+\begin{abstract}
+Traffic crashes may change speeds on the affected road and on roads
+connected to it. Distinguishing a crash's contribution from ordinary
+congestion is difficult because crashes are not randomly located in
+space or time and neighboring roads share other sources of variation.
+We study this problem using Chicago crash records, ten-minute arterial
+speed measurements, and a road-segment graph. Our evaluation compares
+matched event studies, conventional and graph-based forecasts of
+untreated speed, and treatment-aware models that predict outcomes under
+specified crash exposures. The design tests three distinct questions:
+how estimated effects vary across network distance and time; whether
+real road connectivity improves prediction and recovery of known
+effects; and whether observational neighboring-road contrasts withstand
+placebo and sensitivity checks. A completed 2024--2026 run establishes
+the data pipeline and initial baselines. Controlled graph comparisons,
+expanded semi-synthetic interventions, and improved identification
+diagnostics supply the final tests. We report forecasting, known-effect
+recovery, and real-event estimates separately so that conclusions need
+not favor any particular graph model or assume a detectable spillover.
+\end{abstract}
+\keywords{graph neural networks, counterfactual traffic prediction,
+network interference, traffic crashes, causal inference, spatiotemporal graphs}
+\maketitle
+
+\section{Introduction}
+A traffic crash can affect the road where it is reported and may alter
+conditions elsewhere through queues, rerouting, or shared congestion.
+Traffic speed after a crash, however, is not the same as the speed
+\emph{caused} by the crash. Congestion can precede an incident, demand
+shocks can affect many roads simultaneously, and available speed
+measurements may change across road segments and times. The causal
+question compares the speed observed after a reported crash with the
+speed that would have occurred on that road at that time without it.
+
+Urban roads form a network, making graph machine learning (GML) a
+natural modeling tool. Yet the value of the graph must be tested, not
+assumed. A graph neural network (GNN) may improve ordinary speed
+forecasts without improving estimates of crash effects. Moreover,
+observed network adjacency need not capture the actual path of traffic
+propagation. We therefore compare graph and non-graph models while
+separately evaluating the credibility of exposure and control choices.
+
+Our study preserves the original proposal's focus on \emph{effect
+estimation rather than prediction alone}. We organize the experiments
+around three research questions:
+\begin{itemize}
+  \item \textbf{RQ1: Effect patterns.} What speed changes are associated
+  with crashes on the incident road and at one and two graph hops over
+  the next hour? Do these contrasts survive pre-event, placebo,
+  overlapping-crash, and observation-coverage diagnostics? Where
+  direction is reliable, do upstream and downstream segments differ?
+  \item \textbf{RQ2: Graph contribution.} Does the real road graph
+  improve held-out forecasting and \emph{known} effect recovery beyond
+  equally informed non-graph and false-topology comparisons?
+  \item \textbf{RQ3: Explicit treatment modeling.} Does a
+  treatment-conditioned GNN estimate intervention responses more
+  accurately than a treatment-conditioned non-graph model or the
+  existing matched-residual estimator?
+\end{itemize}
+
+The contributions are an empirical framework combining observational
+and known-effect evaluation on an urban road graph; a controlled test
+of graph information versus model capacity and input access; and a
+transparent account of what pre-event diagnostics permit us to infer
+about reported crashes. We do not presume which model or exposure
+pattern will perform best.
+
+\section{Related Work}
+\textbf{Crash impact estimation.} Cao et al.\ quantify incident
+impacts using spatiotemporal regions and comparison traffic
+\cite{cao2021traffic}. Li et al.\ estimate heterogeneous highway
+crash effects using doubly robust causal learning
+\cite{li2024crash}. Both motivate comparisons against plausible
+untreated conditions rather than raw post-crash speeds.
+
+\textbf{Graph traffic forecasting.} GCN and GraphSAGE provide general
+message-passing encoders \cite{kipf2017gcn,hamilton2017graphsage},
+while diffusion convolutional recurrent networks demonstrate the
+value of road graphs for time-series prediction
+\cite{li2018dcrnn}. Incident-aware traffic models such as CASTANET
+also study disruption-sensitive forecasting
+\cite{kitahara2026castanet}. These are relevant predictive baselines,
+but their speed error alone does not evaluate causal-effect accuracy.
+
+\textbf{Causal learning under interference.} Network Deconfounder
+learns graph representations for individual causal inference
+\cite{guo2020network}; Ma and Tresp study interventions whose effects
+can propagate over networks \cite{ma2021interference}. Observational
+network adjustment requires explicit assumptions on exposure and
+confounding \cite{forastiere2022interference}. MSCT addresses
+treatment-aware post-crash counterfactual prediction with
+time-varying confounding \cite{li2024msct}. The act of adding treatment
+heads is therefore not itself our novelty claim. Recent research
+also questions whether fixed hop-based exposure mappings are adequate
+\cite{huber2026exposure}. Our emphasis is a shared test of topology,
+treatment conditioning, and falsification in the same urban study.
+
+\section{Data and Causal Targets}
+\subsection{Chicago Road Observations}
+Chicago provides geocoded crash reports and historical arterial speed
+estimates \cite{chicagoCrashes,chicagoSpeeds}. We use the half-open Run
+A window June 11, 2024--May 1, 2026. Its converted inputs include
+101,138,608 speed records and 207,612 reported crashes. The matched
+monitored network has 881 segments and 4,744 directed arcs for graph
+modeling. Only 57.1\% of the road-by-ten-minute grid has observed speed
+values in the primary joined data. This is a study of roads covered by
+the source, not every Chicago crash or street.
+
+The raw speed feed also contains explicit unavailable-speed readings;
+these are distinct from absent road/time cells. We retain observation
+masks and avoid substituting missing speed with a measured zero.
+Because the semantics of recorded zero-speed values are uncertain, a
+separate sensitivity run excludes them and reports the changed sample
+rather than treating results as directly paired.
+
+\begin{table}[t]
+\centering
+\caption{Completed Run A data selection. Later event-study tables
+use their explicitly stated event and outcome eligibility rules.}
+\label{tab:funnel}
+\footnotesize
+\begin{tabular}{lr}
+\toprule
+Selection stage & Number \\
+\midrule
+Crashes reported in study period & 207,612 \\
+With usable coordinates & 205,387 \\
+Matched to monitored segment & 44,108 \\
+On a segment with speed history & 44,019 \\
+Primary matched-analysis events & 32,479 \\
+Common 0/1/2-hop event-study cohort & 10,162 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Crash-to-road matching and event eligibility reduce the represented
+population substantially (Table~\ref{tab:funnel}). The primary
+matched-residual set and the broader event-study processing set use
+slightly different rules; horizon-specific sample sizes depend on
+observed outcomes and eligible controls. These differences are
+reported, not silently pooled. Frozen road-node identifiers are
+retained across all graph ablations and treatment definitions.
+
+\subsection{Exposure, Potential Outcomes, and Assumptions}
+Let $G=(V,E)$ be the observed road-segment graph. Crash event $e$ occurs
+at segment $s_e$ and recorded time $t_e$. For evaluated road $i$,
+let $A_{ei}\in\{\varnothing,0,1,2\}$ mean no qualifying exposure, a
+crash on the road itself, exposure one hop away, or exposure two hops
+away. An overlap rule excludes or resolves multiple nearby incidents.
+Distance is computed on the \emph{real} road graph and is kept fixed
+when testing alternative model graphs.
+
+For horizon $h\in\{10,20,30,40,50,60\}$ minutes, define
+$Y_{eih}(a)$ as speed under exposure $a$ and
+$Y_{eih}(\varnothing)$ as speed without that specified exposure.
+The target contrast is
+\begin{equation}
+ \tau_{eih}(a)=Y_{eih}(a)-Y_{eih}(\varnothing).
+ \label{eq:effect}
+\end{equation}
+Negative contrasts indicate lower speeds under exposure. Only the
+factual outcome is observed for a real event. The observed graph and
+exposure rule are approximations: vehicle routing depends on direction,
+turns, road capacity, and unmonitored links. Identification also
+requires sufficiently comparable untreated conditions and appropriate
+handling of concurrent crashes, hidden demand changes, and reporting
+times. These conditions are examined, not assumed proven.
+
+\begin{figure}[t]
+\centering
+\figslot{0.84in}{Automated network schematic: crash road (0-hop),\newline first and second neighboring rings; distinguish\newline graph exposure from physical propagation.}
+\Description{Placeholder for a schematic displaying a crash road and first and second neighboring exposure rings.}
+\caption{\textbf{Planned study diagram.} Illustrate the exposure
+categories and factual versus no-crash outcome comparison. This is a
+schematic, not evidence that traffic physically follows each edge.}
+\label{fig:design}
+\end{figure}
+
+\section{Methods}
+\subsection{Matched Event Study and Residual Estimates}
+We construct crash and control windows using the same monitored roads,
+clock/calendar context, and traffic recorded \emph{before} the event.
+For crash event $e$, target road $i$, pre-event reference time $b$,
+and matched untreated control window $c$, an event-study contrast is
+\begin{equation}
+ \widehat\tau^{ES}_{eic,h}
+ =(Y_{eih}-Y_{eib})-(Y_{cih}-Y_{cib}).
+ \label{eq:did}
+\end{equation}
+The final ring-by-horizon estimate averages matched controls within an
+event and observed target roads within a ring before aggregating
+events. This prevents events with many monitored neighbors from
+receiving automatic extra weight. We also report estimates based on
+all available observations and on a fixed event cohort present at
+all hops and horizons.
+
+Separately, a model $f$ predicts the expected speed in an untreated
+window from pre-event histories. Let
+$r_{eih}=Y_{eih}-\widehat Y^{(0)}_{eih}$ be the observed minus
+no-crash-predicted speed. The residual estimator compares the average
+crash residual to that of matched unexposed periods:
+\begin{equation}
+ \widehat\tau^{res}_{k,h}
+ =\overline r_{\mathrm{crash},k,h}
+  -\overline r_{\mathrm{control},k,h}.
+ \label{eq:residual}
+\end{equation}
+This can reduce predictable forecast bias, but matching and residual
+adjustment alone cannot remove hidden confounding.
+
+\subsection{Untreated Speed Forecasters}
+The current pipeline uses twelve ten-minute pre-event bins to predict
+six ten-minute horizons. It evaluates persistence, historical mean,
+MLP, temporal GRU, GCN, GraphSAGE, and STGCN on masked observed
+targets. Model inputs are histories and road information available
+before the evaluated event; post-event speed is never used to
+construct a hypothetical no-crash input. Chronological splits,
+window-overlap exclusion, and untreated training targets are checked
+against the frozen evaluation specification.
+
+\subsection{Treatment-Aware Graph and Non-Graph Models}
+A separate planned model explicitly conditions on crash exposure.
+An encoder $z_{ei}=f_\theta(X_{e,\le t_e},G)$ uses only pre-event
+information, followed by an exposure-conditional outcome function:
+\begin{equation}
+ \widehat Y_{eih}(a)=g_\phi(z_{ei},a,h),\qquad
+ \widehat\tau_{eih}(a)=\widehat Y_{eih}(a)
+                      -\widehat Y_{eih}(\varnothing).
+ \label{eq:heads}
+\end{equation}
+The training loss is applied \emph{only} to the outcome corresponding
+to each observed factual exposure; no invented counterfactual targets
+are used for real events. We compare a non-graph MLP with a GCN- or
+STGCN-based encoder. Importantly, the MLP receives the same
+pre-event road signals and explicit summaries of neighboring speeds,
+so a graph improvement cannot be attributed only to access to neighbor
+information. Exposure labels, outcomes, splits, masking, and training
+budget are held fixed. Potential-outcome prediction is a modeling
+approach, not proof of unconfounded treatment assignment.
+
+\section{Experimental Evaluation}
+\subsection{Shared Splits and Fair Graph Comparisons}
+Our controlled experiment changes only model message-passing topology:
+real road edges, self-only/no neighboring messages, and one documented
+rewired graph. Treatment labels, target roads, raw input observations,
+chronological split, masks, and the underlying physical graph remain
+unchanged. The graph encoder and comparably informed non-graph model
+are trained and scored on the same eligible instances. We report
+forecast MAE/RMSE separately from known-effect MAE/bias, with at least
+three model seeds when resource constraints permit. Event bootstrap
+uncertainty and across-seed variation answer different questions and
+are not conflated.
+
+\subsection{Known-Effect Semi-Synthetic Evaluation}
+We programmatically inject interventions into held-out crash-free
+traffic histories and preserve both untreated and treated potential
+outcomes, exposure assignments, ground-truth contrasts, event IDs,
+and missingness masks. The initial 200-event additive benchmark obeys
+$Y^{sim}=Y^{(0)}+\delta$. For a residual-style estimator,
+\begin{equation}
+ (Y^{sim}-\widehat Y^{(0)})-\delta
+  =Y^{(0)}-\widehat Y^{(0)}.
+ \label{eq:identity}
+\end{equation}
+Thus individual injected-effect error can be exactly ordinary
+untreated forecasting error. We retain this test for continuity, but
+it is not standalone evidence of causal identification.
+
+The extended benchmark separately tests (i) a direct effect with
+\emph{zero} true 1/2-hop spillover, (ii) known time-varying spatial
+decay with multiple magnitudes, and (iii), if validated, treatment
+assignment dependent on pre-event congestion rather than random
+placement. Models are evaluated on the same held-out interventions
+using hop-/horizon-specific effect MAE/RMSE, average-effect bias,
+false-positive neighboring effects, and paired event-level intervals.
+A negative or null result is informative if supported by these tests.
+
+\subsection{Observational Diagnostics and Conditional Extensions}
+Our strongest observational checks are target-road pre-crash balance,
+pre-event pseudo-crash times, a spatial negative control,
+concurrent-crash exclusion, and common-event trajectories. We also
+compare observation availability by exposure and horizon, because
+complete-case estimates could change when sensors or source coverage
+are correlated with incidents. Recorded zero speeds receive a
+separate sensitivity analysis.
+
+Where verified road direction supports it, we additionally compare
+upstream and downstream profiles. At most two prespecified
+heterogeneity analyses examine pre-crash congestion and reliable
+reported severity or road centrality, with denominators and
+uncertainty. These extensions should not be interpreted causally if
+control balance or exposure mapping is inadequate. No additional
+manual labeling is required.
+
+\section{Results: Completed Baseline and Final Tests}
+\subsection{Completed Run A: Model and Data Checks}
+Table~\ref{tab:forecast} reports the first completed Run A held-out
+forecast comparison. Its shared test split contains 14,754 forecast
+windows. These observations are a reproducible starting point for the
+controlled graph and treatment-aware experiments, \emph{not} a final
+ranking of counterfactual estimators.
+
+\begin{table}[t]
+\centering
+\caption{Initial Run A held-out speed prediction, in mph. These
+numbers are complete for the original seven-model run; subsequent
+topology-controlled comparisons are reported separately.}
+\label{tab:forecast}
+\footnotesize
+\begin{tabular}{lrr}
+\toprule
+Method & Test MAE & Test RMSE \\
+\midrule
+Persistence & 4.141 & 5.623 \\
+Historical mean & 3.151 & 4.266 \\
+MLP & 3.102 & 4.231 \\
+Temporal GRU & 3.067 & 4.206 \\
+GCN & 3.072 & 4.197 \\
+GraphSAGE & 3.036 & 4.165 \\
+STGCN & 3.029 & 4.165 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The original additive synthetic benchmark produced pooled effect MAEs
+of 3.247 mph for historical mean and 3.288 mph for STGCN, with other
+model scores recorded in the experiment logs. Those results are
+reported descriptively, subject to Eq.~\ref{eq:identity}; the final
+known-effect comparison will use the expanded interventions below.
+
+\subsection{Crash-Road and Neighbor Contrasts}
+The initial available-case event study at 30 minutes reports
+matched contrasts of $-0.523$, $-0.106$, and $-0.056$ mph for the
+incident road, 1-hop roads, and 2-hop roads. At 10 minutes, the 1-hop
+contrast is $-0.098$ mph, while its corresponding placebo is
+$-0.069$ mph. These are \emph{observational contrasts}, not verified
+causal spillovers. The common cohort (10,162 events) and revised
+neighbor-specific controls form part of the final sensitivity analysis.
+
+\begin{figure*}[t]
+\centering
+\widefigslot{1.12in}{Panel A: 0/1/2-hop contrasts with event-level 95\% intervals\\[3pt]
+Panel B: fixed-cohort estimates, pre-event placebo and neighbor-specific controls}
+\Description{Placeholder for two panels of observed crash and neighboring-road contrasts across the first hour, including confidence intervals and placebo comparisons.}
+\caption{\textbf{Final observational effect plot (pending).} Show 10--60-minute
+trajectories, available and fixed cohorts, signed placebo comparisons,
+matching version, and event counts. Source: validated
+\texttt{outputs/identification-runA/}.}
+\label{fig:eventcurves}
+\end{figure*}
+
+\begin{table}[t]
+\centering
+\caption{\textbf{Observational checks (pending).} Supply
+pre-event imbalance, placebo magnitude, concurrent-crash sensitivity,
+and outcome availability; do not interpret placebo share as a p-value.}
+\label{tab:diagnostics}
+\footnotesize
+\begin{tabular}{p{0.43\columnwidth}p{0.19\columnwidth}p{0.19\columnwidth}}
+\toprule
+Diagnostic & Before & Revised \\
+\midrule
+Neighbor pretrend gap & \tbd & \tbd \\
+1-hop pre-event placebo (mph) & \tbd & \tbd \\
+Concurrent-crash-excluded contrast & \tbd & \tbd \\
+Exposed/control speed availability & \tbd & \tbd \\
+Fixed-cohort 1-hop effect & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% FINAL UPDATE: Replace this sentence with measured pretrend/placebo,
+% missingness, concurrent-crash and common-event findings, not a favored claim.
+\pending{Interpret Figure~\ref{fig:eventcurves} and Table~\ref{tab:diagnostics}
+using the finalized exposure rule and matched event counts.}
+
+\subsection{Graph Topology and Treatment-Aware Models}
+The decisive model comparisons hold target data fixed while changing
+topology or treatment awareness. Table~\ref{tab:causalmodels} and
+Figure~\ref{fig:ablation} are reserved for the final verified
+results. Only synthetic experiments with known ground truth permit
+direct effect-error comparisons.
+
+\begin{table}[t]
+\centering
+\caption{\textbf{Paired model comparisons (pending).}
+Every row uses a declared common evaluation set and treatment labels
+from the real graph. Lower error is better.}
+\label{tab:causalmodels}
+\footnotesize
+\begin{tabular}{lccc}
+\toprule
+Model / graph & Speed MAE & Effect MAE & Bias \\
+\midrule
+Encoder / real edges & \tbd & \tbd & \tbd \\
+Encoder / self-only & \tbd & \tbd & \tbd \\
+Encoder / rewired & \tbd & \tbd & \tbd \\
+Treatment MLP + neighbor inputs & \tbd & \tbd & \tbd \\
+Treatment GNN / real edges & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figslot{0.98in}{Two aligned panels: (a) held-out forecasting error;\\
+(b) known-effect recovery error; real/self-only/rewired topology.}
+\Description{Placeholder for paired panels comparing forecasting error and synthetic treatment-effect error across graph ablations.}
+\caption{\textbf{Graph contribution (pending).} Plot paired
+prediction and treatment-effect errors on consistent observations,
+with training-seed spread where available.}
+\label{fig:ablation}
+\end{figure}
+
+% FINAL UPDATE: Insert verified model comparison and explain, regardless
+% of which model has the lowest effect MAE.
+\pending{Report paired differences and uncertainty for graph and
+non-graph counterfactual models, separately from speed forecasting.}
+
+\subsection{Synthetic Null and Propagation Checks}
+\begin{table}[t]
+\centering
+\caption{\textbf{Known-effect benchmarks (pending).} Compare estimated
+versus true effects using the same held-out intervention IDs.}
+\label{tab:synthetic}
+\footnotesize
+\begin{tabular}{p{0.43\columnwidth}cc}
+\toprule
+Intervention & Primary outcome & Result \\
+\midrule
+Direct only; true neighbor effect $=0$ & False 1/2-hop effect & \tbd \\
+Known spatial/temporal decay & Hop-specific effect MAE & \tbd \\
+Pre-congestion-dependent assignment & Effect bias & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% FINAL UPDATE: Insert null false-positive rates, decay recovery, and
+% treatment-assignment sensitivity, with known effect sizes and seeds.
+\pending{Insert a final synthetic result figure if it offers evidence
+not already conveyed by Table~\ref{tab:synthetic}.}
+
+\section{Discussion and Limitations}
+The main scientific interpretations depend on results that are still
+being evaluated. A model with lower speed error may or may not recover
+known crash effects more accurately. If real edges outperform
+self-only and rewired graph variants on identical treatment-effect
+targets, that supports a contribution from road connectivity under
+the tested data-generating conditions. If the result is limited to
+forecasting, the conclusion should be limited accordingly. If
+explicit treatment conditioning changes effect accuracy, the
+comparison with an equally supervised MLP is needed to determine
+whether the gain is specifically graph-related.
+
+Observational differences require more caution. A slowdown estimated
+for a nearby road can reflect a crash, earlier congestion, another
+incident, route diversion, an incorrect exposure map, or a change in
+which speed readings are available. Statistical intervals account for
+specified sampling uncertainty but do not remove bias from unobserved
+confounding. In addition, the average change in mph may conceal
+important variation by pre-crash traffic and incident characteristics.
+Direction and heterogeneity are therefore interpreted only where the
+recorded network and data coverage support them.
+
+The study is limited to matched incidents on monitored Chicago arterial
+segments, uses reported crash times and locations, and approximates
+interference using a finite observed graph. The synthetic benchmarks
+make treatment effects known \emph{by construction}, which is valuable
+for model evaluation but does not prove identification for real
+crashes. The final discussion will distinguish a detected association,
+a model's recovery under known intervention, and a causal effect
+supported by explicit assumptions.
+
+\section{Conclusion and Reproducibility}
+We provide an evaluation framework for traffic crash effects that
+links a real urban road graph, matched observational comparisons,
+non-graph and graph-based prediction, and interventions with known
+ground truth. The completed Run A establishes feasibility at city
+scale; the final experiments test the contribution of actual road
+connections and explicit crash exposures while examining whether
+neighbor-road comparisons survive falsification diagnostics.
+
+% FINAL UPDATE: Replace only after all tables are frozen. Include one
+% neutral sentence each for RQ1/RQ2/RQ3, supported by final evidence.
+\pending{Insert concise final findings for RQ1--RQ3, including null,
+mixed, and inconclusive results where supported.}
+
+For reproducibility, the final release will identify the exact Run A
+source snapshot (including HPC-only path changes), study period,
+road-graph files, package lock, train/test partitions, masks,
+exposure definitions, seeds, Slurm settings and machine-readable output
+paths. Existing completed runs are preserved separately from each
+follow-on experiment. Code and scripted analyses automatically
+construct labels, event cohorts, figures, and result tables; the
+counterfactual outcomes for real crashes remain unobserved.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+\end{document}

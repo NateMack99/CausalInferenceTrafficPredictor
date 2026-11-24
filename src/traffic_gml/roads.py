@@ -58,7 +58,7 @@ def _street(name: str) -> str:
 def prepare_roads(data_dir: str | Path = DATA) -> nx.MultiDiGraph:
     """Save speed_segments.parquet, speed_roads.parquet, and the starter GraphML."""
     data_dir = Path(data_dir)
-    source = data_dir / "parquet/chicago-speeds"
+    source = _paths(data_dir)["speeds"]
     manifest = json.loads((source / "_conversion.json").read_text())
     days = (
         pd.Timestamp(manifest["last_timestamp"]).normalize()
@@ -199,7 +199,7 @@ def download_street_graph(data_dir: str | Path = DATA) -> nx.MultiDiGraph:
 # --------------------------------------------------------------------------
 def _paths(data_dir: Path) -> dict[str, Path]:
     return {
-        "speeds": data_dir / "parquet" / "chicago-speeds",
+        "speeds": data_dir / "parquet" / "chicago-speeds-history",
         "crashes": data_dir / "parquet" / "chicago-crashes",
         "segments_json": data_dir / "chicago-traffic-segments.json",
         "street_graph": data_dir / "chicago_road_network.graphml",
