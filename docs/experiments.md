@@ -86,6 +86,12 @@ Conventions that are not flags:
   because a ring road is skipped unless its own pre span is crash-free and
   `clean` already spreads `--exposure-hops`. `effect_excluding_overlaps` is the
   same estimate without the flagged cells.
+- **`effect_duration.csv` is read last.** Per ring, the horizon steps whose
+  interval lies wholly below zero, and whether the ring is still negative at
+  the final step, which censors the duration rather than ending it. It adds
+  no test: a duration read from intervals the placebo cannot clear describes
+  the arms, not the crash. The direction and subgroup analyses that once sat
+  beside it are out of scope; `PROJECT_ROADMAP.md` records why.
 - **`attrition.csv`** counts crash cells dropped for want of a surviving
   control, by hop, so a distance profile is not read across silently different
   samples per ring.

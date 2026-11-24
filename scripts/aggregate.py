@@ -37,6 +37,12 @@ SINGLE = (
     ("tab:diagnostics", "cells dropped for want of a control", "run", "event/attrition.csv"),
     (
         "tab:diagnostics",
+        "how long each ring stays detectably negative",
+        "run",
+        "event/effect_duration.csv",
+    ),
+    (
+        "tab:diagnostics",
         "effect excluding overlapping crashes",
         "run",
         "event/effect_excluding_overlaps.csv",

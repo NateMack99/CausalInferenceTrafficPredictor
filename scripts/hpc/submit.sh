@@ -131,22 +131,23 @@ fi
 prepare=$(submit prepare cpu "$PREPARE_TIME" "afterok:$verify")
 audit=$(submit audit cpu 00:15:00 "afterok:$prepare")
 
-# Primary Run A results first, then the decisive paired comparisons, then
-# sensitivity arms, so a wall-time loss costs the least important work.
+# Every stage depends only on what it actually needs. `audit` writes the
+# checksum each experiment verifies, so all of them hang off it and the
+# scheduler decides the order; GPU_CONCURRENCY caps the arrays.
 main=$(submit main gpu "$GPU_TIME" "afterok:$audit")
 event=$(submit event cpu "$CPU_TIME" "afterok:$audit")
 benchmark=$(submit benchmark gpu "$GPU_TIME" "afterok:$audit")
+treatment=$(submit treatment gpu "$GPU_TIME" "afterok:$audit" '0-2')
+ablation=$(submit graph-ablation gpu "$GPU_TIME" "afterok:$audit" '0-11')
+matching=$(submit matching cpu "$CPU_TIME" "afterok:$audit" '0-5')
+scenarios=$(submit synthetic-scenarios gpu "$GPU_TIME" "afterok:$audit" '0-8')
+seeds=$(submit forecast-seeds gpu "$GPU_TIME" "afterok:$audit" '0-7')
+zero_main=$(submit main-nozero gpu "$GPU_TIME" "afterok:$audit")
+zero_event=$(submit event-nozero cpu "$CPU_TIME" "afterok:$audit")
+zero_benchmark=$(submit benchmark-nozero gpu "$GPU_TIME" "afterok:$audit")
+
+# `report` is the only stage that reads other stages' outputs.
 report=$(submit report cpu 00:30:00 "afterok:$main:$event:$benchmark")
-
-treatment=$(submit treatment gpu "$GPU_TIME" "afterok:$report" '0-2')
-ablation=$(submit graph-ablation gpu "$GPU_TIME" "afterok:$report" '0-11')
-
-matching=$(submit matching cpu "$CPU_TIME" "afterok:$report" '0-5')
-zero_main=$(submit main-nozero gpu "$GPU_TIME" "afterok:$ablation")
-zero_event=$(submit event-nozero cpu "$CPU_TIME" "afterok:$report")
-zero_benchmark=$(submit benchmark-nozero gpu "$GPU_TIME" "afterok:$zero_main")
-scenarios=$(submit synthetic-scenarios gpu "$GPU_TIME" "afterok:$zero_benchmark" '0-8')
-seeds=$(submit forecast-seeds gpu "$GPU_TIME" "afterok:$scenarios" '0-7')
 
 every="$audit:$main:$event:$benchmark:$report:$treatment:$ablation:$matching"
 every="$every:$zero_main:$zero_event:$zero_benchmark:$scenarios:$seeds"

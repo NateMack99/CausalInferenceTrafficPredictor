@@ -17,6 +17,7 @@ from traffic_gml.causal import (
     against_placebo,
     arm_table,
     covariate_balance,
+    effect_duration,
     event_study,
     fixed_cohort,
     nearest_on_target,
@@ -350,3 +351,21 @@ def test_other_crash_flags_a_neighbour_report_but_not_the_index_crash():
     with_second[60, 2] = True
     rows, _ = arm_table(data, frame, edge_index, hops=2, reported=with_second)
     assert set(rows.loc[rows.other_crash, "road"]) == {1, 2}
+
+
+def test_effect_duration_counts_only_intervals_below_zero():
+    summary = pd.DataFrame(
+        {
+            "hop": [0, 0, 0, 1, 1, 1],
+            "minutes": [10, 20, 30, 10, 20, 30],
+            "high": [-0.4, -0.1, 0.2, 0.3, None, -0.2],
+        }
+    )
+    duration = effect_duration(summary).set_index("hop")
+    # Hop 0 stops being detectable at 30 minutes, so the window outlasts it.
+    assert duration.loc[0, "steps_negative"] == 2
+    assert duration.loc[0, "last_negative_minutes"] == 20
+    assert not duration.loc[0, "censored"]
+    # Hop 1 is still negative at the last step, so its duration is censored.
+    assert duration.loc[1, "steps_negative"] == 1
+    assert duration.loc[1, "censored"]

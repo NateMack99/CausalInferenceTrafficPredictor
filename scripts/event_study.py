@@ -25,6 +25,7 @@ import pandas as pd
 from traffic_gml.causal import (
     against_placebo,
     covariate_balance,
+    effect_duration,
     event_study,
     fixed_cohort,
     pre_trends,
@@ -168,6 +169,7 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         "effect_by_hop": available,
         "effect_excluding_overlaps": summarise(did[~did["other_crash"]]),
         "effect_fixed_cohort": summarise(cohort) if len(cohort) else pd.DataFrame(),
+        "effect_duration": effect_duration(available),
         "pre_trends": pre_trends(
             train, events, control, edge_index, hops=args.hops, leads=args.leads
         ),

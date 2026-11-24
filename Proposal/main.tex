@@ -89,8 +89,8 @@ around three research questions:
   \item \textbf{RQ1: Effect patterns.} What speed changes are associated
   with crashes on the incident road and at one and two graph hops over
   the next hour? Do these contrasts survive pre-event, placebo,
-  overlapping-crash, and observation-coverage diagnostics? Where
-  direction is reliable, do upstream and downstream segments differ?
+  overlapping-crash, and observation-coverage diagnostics, and how
+  long does a detectable contrast last?
   \item \textbf{RQ2: Graph contribution.} Does the real road graph
   improve held-out forecasting and \emph{known} effect recovery beyond
   equally informed non-graph and false-topology comparisons?
@@ -327,13 +327,14 @@ complete-case estimates could change when sensors or source coverage
 are correlated with incidents. Recorded zero speeds receive a
 separate sensitivity analysis.
 
-Where verified road direction supports it, we additionally compare
-upstream and downstream profiles. At most two prespecified
-heterogeneity analyses examine pre-crash congestion and reliable
-reported severity or road centrality, with denominators and
-uncertainty. These extensions should not be interpreted causally if
-control balance or exposure mapping is inadequate. No additional
-manual labeling is required.
+We also summarize how long a detectable contrast lasts in each ring,
+counting horizon steps whose event-clustered interval lies wholly below
+zero. It reuses the event-study estimates rather than testing anything
+new, and is read only after the placebo, matching and missingness
+diagnostics, because a duration taken from intervals the placebo cannot
+clear describes the arms rather than the crash. A ring still negative at
+the final step is reported as censored: the observation window ends
+before the effect does.
 
 \section{Results: Completed Baseline and Final Tests}
 \subsection{Completed Run A: Model and Data Checks}
@@ -511,6 +512,16 @@ crash arm stops being exposure-masked, so the control arm's clean-post filter
 begins applying to both arms alike, and the resulting step at that distance
 would measure the filter rather than traffic. We state this as a limitation
 instead of reporting a contrast we cannot interpret.
+
+We do not separate upstream from downstream neighbors, and we report no
+subgroup analysis. The segment graph links two segments whenever their
+underlying road edges meet at an intersection, so it is undirected by
+construction and carries no flow orientation. Segment direction labels do
+exist and would orient roughly thirty percent of one-hop pairs, but
+exploiting them would require rebuilding the exposure graph, and the
+remaining pairs would still depend on turn restrictions the data does not
+record. We leave directional and heterogeneous effects as future work
+rather than report a partial version of either.
 
 The study is limited to matched incidents on monitored Chicago arterial
 segments, uses reported crash times and locations, and approximates
