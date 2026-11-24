@@ -23,6 +23,7 @@ from traffic_gml.events import (
     build_windows,
     clock_features,
 )
+from traffic_gml.graph import neighbourhood
 from traffic_gml.mock import make_mock
 from traffic_gml.models import build_model
 
@@ -282,3 +283,39 @@ def test_graph_ablation_holds_capacity_fixed_and_only_moves_the_topology(built, 
     # `degree` and `betweenness` are graph-derived, so an ablation leaves them
     # describing a graph the model no longer has. Both entry points warn.
     assert set(GRAPH_FEATURES) == {"degree", "betweenness"}
+
+
+def test_neighbour_channel_summarises_only_clean_observed_neighbours(tables):
+    """The fair non-graph baseline needs neighbour speeds, but not crashed ones.
+
+    A crashed neighbour inside the summary would put a real slowdown into the
+    no-crash counterfactual, which is the leak `x_mask` exists to stop.
+    """
+    plain, _ = build_windows(tables, history=HISTORY, horizon=HORIZON, static_features=STATIC)
+    with_nearby, edge_index = build_windows(
+        tables, history=HISTORY, horizon=HORIZON, static_features=STATIC, neighbour_hops=1
+    )
+    base, data = plain["test"], with_nearby["test"]
+    assert base.num_features == len(FEATURES) + len(STATIC)
+    assert data.num_features == base.num_features + 1
+
+    item = data[0]
+    assert item["x"].shape[-1] == data.num_features
+    assert torch.equal(item["x"][..., :-1], base[0]["x"])
+
+    reach = neighbourhood(edge_index, data.num_roads, 1).toarray()
+    lag = slice(int(data.origins[0]) - HISTORY + 1, int(data.origins[0]) + 1)
+    speeds, clean = data.values[lag].numpy(), data.clean[lag].numpy()
+    usable = np.isfinite(speeds) & clean
+    for road in range(data.num_roads):
+        nearby = reach[road]
+        seen = usable[:, nearby]
+        expected = np.where(
+            seen.any(axis=1),
+            np.where(seen, speeds[:, nearby], 0.0).sum(axis=1) / np.maximum(seen.sum(axis=1), 1),
+            np.nan,
+        )
+        channel = item["x"][:, road, -1].numpy()
+        reported = ~np.isnan(expected)
+        assert np.allclose(channel[reported], data.encode(expected[reported]), atol=1e-5)
+        assert (channel[~reported] == 0.0).all()

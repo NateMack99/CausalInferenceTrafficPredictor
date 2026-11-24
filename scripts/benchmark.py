@@ -55,6 +55,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     windows.add_argument("--history", type=int, default=12)
     windows.add_argument("--horizon", type=int, default=6)
     windows.add_argument("--exposure-hops", type=int, default=2)
+    windows.add_argument(
+        "--neighbour-hops",
+        type=int,
+        default=0,
+        help="neighbourhood-mean speed channel, in graph hops; 0 is off",
+    )
     windows.add_argument("--stride", type=int, default=1)
     windows.add_argument("--static-features", nargs="*", default=[])
     windows.add_argument("--drop-zero-speed", action="store_true")
@@ -104,6 +110,7 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         history=args.history,
         horizon=args.horizon,
         exposure_hops=args.exposure_hops,
+        neighbour_hops=args.neighbour_hops,
         stride=args.stride,
         static_features=args.static_features,
         drop_zero_speed=args.drop_zero_speed,

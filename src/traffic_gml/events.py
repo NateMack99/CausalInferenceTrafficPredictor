@@ -381,6 +381,7 @@ class Windows(Dataset):
         history: int,
         horizon: int,
         norm: tuple[float, float],
+        neighbour: np.ndarray | None = None,
     ):
         self.values = torch.from_numpy(values)
         self.times = times
@@ -390,10 +391,11 @@ class Windows(Dataset):
         self.clean = torch.from_numpy(clean)
         self.origins = torch.from_numpy(origins)
         self.usable = torch.from_numpy(usable)
+        self.neighbour = None if neighbour is None else torch.from_numpy(neighbour)
         self.history, self.horizon = history, horizon
         self.mean, self.std = norm
         self.num_roads = values.shape[1]
-        self.num_features = len(FEATURES) + static.shape[1]
+        self.num_features = len(FEATURES) + static.shape[1] + (neighbour is not None)
 
     def at(self, origins: np.ndarray, usable: np.ndarray) -> Windows:
         """Same grid and statistics, different windows — for event/control sets."""
@@ -420,15 +422,17 @@ class Windows(Dataset):
         x_mask = torch.isfinite(lags) & self.clean[lag]
         y_seen = torch.isfinite(future)
         clock = self.clock[lag].unsqueeze(1)
+        channels = [
+            torch.where(x_mask, self.encode(lags), 0.0).unsqueeze(-1),
+            clock.expand(self.history, self.num_roads, clock.shape[-1]),
+            self.static.expand(self.history, *self.static.shape),
+        ]
+        if self.neighbour is not None:
+            nearby = self.neighbour[lag]
+            reported = torch.isfinite(nearby)
+            channels.append(torch.where(reported, self.encode(nearby), 0.0).unsqueeze(-1))
         return {
-            "x": torch.cat(
-                [
-                    torch.where(x_mask, self.encode(lags), 0.0).unsqueeze(-1),
-                    clock.expand(self.history, self.num_roads, clock.shape[-1]),
-                    self.static.expand(self.history, *self.static.shape),
-                ],
-                dim=-1,
-            ),
+            "x": torch.cat(channels, dim=-1),
             "x_mask": x_mask,
             "y": torch.where(y_seen, self.encode(future), 0.0),
             "y_mask": y_seen & self.usable[i].unsqueeze(0),
@@ -589,6 +593,7 @@ def build_windows(
     stride: int = 1,
     static_features: list[str] | tuple[str, ...] = (),
     drop_zero_speed: bool = False,
+    neighbour_hops: int = 0,
 ) -> tuple[dict[str, Windows], Tensor]:
     """Crash-free train/validation/test window sets, and the road `edge_index`.
 
@@ -630,9 +635,25 @@ def build_windows(
     norm = (float(seen.mean()), spread if spread > 0 else 1.0)
 
     static = encode_static(tables["segments"], segment_ids, static_features)
+    # Built from the real graph and from masked cells only, so a crashed or
+    # unobserved neighbour cannot enter the summary a no-crash forecast reads.
+    neighbour = None
+    if neighbour_hops:
+        reach = neighbourhood(edges, len(segment_ids), neighbour_hops)
+        masked = np.where(clean & np.isfinite(values), values, np.nan).astype(values.dtype)
+        neighbour = smooth_over_neighbourhood(masked, reach)
     sets = {
         name: Windows(
-            values, times, static, clean, origins[index], usable[index], history, horizon, norm
+            values,
+            times,
+            static,
+            clean,
+            origins[index],
+            usable[index],
+            history,
+            horizon,
+            norm,
+            neighbour,
         )
         for name, index in splits.items()
     }

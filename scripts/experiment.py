@@ -182,6 +182,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--history", type=int, default=12)
     parser.add_argument("--horizon", type=int, default=6)
     parser.add_argument("--exposure-hops", type=int, default=2)
+    parser.add_argument(
+        "--neighbour-hops",
+        type=int,
+        default=0,
+        help="neighbourhood-mean speed channel, in graph hops; 0 is off",
+    )
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument("--static-features", nargs="*", default=[])
     parser.add_argument(
@@ -265,6 +271,7 @@ def main(argv: list[str] | None = None) -> dict:
         history=args.history,
         horizon=args.horizon,
         exposure_hops=args.exposure_hops,
+        neighbour_hops=args.neighbour_hops,
         stride=args.stride,
         static_features=args.static_features,
         drop_zero_speed=args.drop_zero_speed,
@@ -283,10 +290,13 @@ def main(argv: list[str] | None = None) -> dict:
             f"{model_edges.size(1)} arcs); coverage tables still describe the real graph"
         )
         leaked = [c for c in args.static_features if c in GRAPH_FEATURES]
+        if args.neighbour_hops:
+            leaked = [*leaked, "the neighbour-mean channel"]
         if leaked:
             print(
                 f"  warning: {leaked} are graph-derived and are NOT permuted, so they "
-                "describe a graph this run does not have. Use --static-features length_m."
+                "describe a graph this run does not have. Use --static-features length_m "
+                "and --neighbour-hops 0."
             )
     print(
         f"{train.num_roads} roads, {edge_index.size(1):,} directed arcs, "
