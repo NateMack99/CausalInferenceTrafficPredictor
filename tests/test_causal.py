@@ -313,3 +313,40 @@ def test_nearest_on_target_picks_each_road_its_own_closest_control():
     # Road 1's nearest control is a different week from road 0's, which is the
     # point: one control week cannot be closest for every ring road.
     assert sorted(zip(kept.road, kept.origin, strict=True)) == [(0, 100), (1, 200)]
+
+
+def test_other_crash_flags_a_neighbour_report_but_not_the_index_crash():
+    """The index crash is reported within one hop of its own ring 0 and ring 1
+    roads, so it has to be discounted exactly: a genuine second report in the
+    same bin must still raise the flag."""
+    ids = np.array([1, 2, 3, 4])
+    times = pd.date_range("2025-01-06", periods=120, freq=FREQ, tz="UTC")
+    tables = {
+        "speeds": pd.DataFrame(
+            {
+                "time": np.repeat(times, 4),
+                "segment_id": np.tile(ids, 120),
+                "speed": np.full(480, 30.0, dtype="float32"),
+            }
+        ),
+        "segments": pd.DataFrame({"segment_id": ids}),
+        "edges": pd.DataFrame({"src": [1, 2, 3], "dst": [2, 3, 4]}),
+        "crashes": pd.DataFrame(
+            {"crash_record_id": ["X"], "crash_time": [times[60]], "segment_id": [1]}
+        ),
+    }
+    sets, edge_index = build_windows(tables, history=4, horizon=2, exposure_hops=0)
+    data = sets["train"]
+    frame = pd.DataFrame({"event_id": ["E"], "road": [0], "origin": [59]})
+
+    index_only = np.zeros((len(times), 4), dtype=bool)
+    index_only[60, 0] = True
+    rows, _ = arm_table(data, frame, edge_index, hops=2, reported=index_only)
+    assert not rows.other_crash.any()
+
+    # A second report on the ring-2 road flags it and its ring-1 neighbour,
+    # but not the crash road two hops away from it.
+    with_second = index_only.copy()
+    with_second[60, 2] = True
+    rows, _ = arm_table(data, frame, edge_index, hops=2, reported=with_second)
+    assert set(rows.loc[rows.other_crash, "road"]) == {1, 2}

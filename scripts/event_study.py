@@ -176,6 +176,9 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         ),
         "neighbour_coverage": neighbour_coverage(train, edge_index, table, hops=args.hops),
         "availability": pd.DataFrame(did.attrs["availability"]),
+        "attrition": pd.DataFrame(
+            sorted(dropped.items()), columns=["hop", "cells_without_a_control"]
+        ),
     }
     for name, frame in tables_out.items():
         frame.to_csv(args.out / f"{name}.csv", index=False)
