@@ -100,10 +100,10 @@ A coding agent can implement each workstream independently against the frozen in
 
 **Purpose:** Separate real topology from added features/capacity.
 
-- [ ] Run one matched architecture under **real edges**, **self-only/no neighbor messages**, and **one fixed degree-preserving or otherwise documented rewired topology**.
-- [ ] Keep event exposure/labels on the original network, same model budget, features, seeds, splits, masks and target population; change only message-passing structure.
-- [ ] Compare test forecast MAE/RMSE and synthetic **effect** MAE/bias by hop and horizon; include paired event bootstrap differences where applicable.
-- [ ] Add at least three training seeds for the principal comparison if jobs finish comfortably; report seed spread separately from sampling uncertainty.
+- [x] Run one matched architecture under **real edges**, **self-only/no neighbor messages**, and **one fixed degree-preserving or otherwise documented rewired topology**. `graph-ablation` stage, `gcn` and `stgcn` over `real`/`none`/`permuted`. **Awaiting the run.**
+- [x] Keep event exposure/labels on the original network, same model budget, features, seeds, splits, masks and target population; change only message-passing structure. `benchmark.py --graph-ablation` keeps injection on the real `edge_index` and passes `model_edges` only to the model.
+- [ ] Compare test forecast MAE/RMSE and synthetic **effect** MAE/bias by hop and horizon; include paired event bootstrap differences where applicable. Both come from one `benchmark.py` arm and `aggregate.py` builds the two-panel figure; **needs the run**.
+- [x] Add at least three training seeds for the principal comparison if jobs finish comfortably; report seed spread separately from sampling uncertainty. Seeds 42/43/44 per topology; the figure shows spread across seeds as error bars. **Awaiting the run.**
 
 **Deliverables:** `outputs/graph-ablation-runA/`, paired results table and a **two-panel figure: forecast error vs. effect recovery**.
 
@@ -114,7 +114,7 @@ A coding agent can implement each workstream independently against the frozen in
 - [x] Generate automated factual exposure labels `none/own/1-hop/2-hop` and the corresponding observed speed targets; reject ambiguous simultaneous exposure or use a documented priority rule. `events.exposure_labels`; concurrent exposure resolves to the nearer crash.
 - [x] Implement a simple exposure-conditioned MLP and graph encoder (GCN or STGCN), each with shared pre-treatment representation and exposure-specific head/embedding; supervise **only the observed factual outcome**. `models.TreatmentAware` as `treatment_mlp` and `treatment_gcn`, trained on `Windows.factual()`.
 - [x] Give the MLP the same pre-event neighborhood information in aggregated form (`--neighbour-hops`); keep optimization budget, training sample, masks, horizons and exposure coding aligned.
-- [ ] At evaluation, predict the same road/horizon **with the specified exposure and with no exposure**; score their difference against synthetic ground truth. Compare with the original residual-based estimator. `evaluate.exposure_effects` provides the readout; the scoring needs the run.
+- [x] At evaluation, predict the same road/horizon **with the specified exposure and with no exposure**; score their difference against synthetic ground truth. Compare with the original residual-based estimator. `benchmark.py` scores both treatment arms and `gcn` on one injection per seed. **Awaiting the run.**
 - [ ] Check exposure overlap, head utilization, masking, training/evaluation leaks, and small synthetic examples with analytically known answers before large training.
 - [ ] Use observational outputs as a robustness comparison, **not** to tune methods to yield desired causal signs. Two potential-outcome heads do not alone resolve unmeasured confounding.
 
@@ -126,9 +126,9 @@ A coding agent can implement each workstream independently against the frozen in
 
 - [x] Keep original **Benchmark 0** (200-event additive injection) for continuity; clearly state its forecast-error identity. It is the default; the identity is in `docs/methodology.md` and pinned by `test_synthetic.test_differencing_the_two_arms_is_degenerate_by_construction`.
 - [x] **Benchmark 1: synthetic null.** Direct crash-road slowdown but **zero true 1/2-hop effect**; measure spurious neighbor estimates and their intervals. `--hop-decay 0`, no new generator; queued as `synthetic-scenarios` task 0. **Awaiting its run.**
-- [ ] **Benchmark 2: propagation.** Known 0/1/2-hop decay, temporal onset/duration, and at least two prespecified intervention magnitudes; measure effects by hop and horizon.
-- [ ] **Benchmark 3: confounded assignment (valuable).** Compare random placement with assignment dependent only on pre-crash congestion; quantify bias and overlap. Treat as sensitivity, not proof of real-data identification.
-- [ ] Use at least three **synthetic generation** seeds where feasible; never conflate those with training seeds.
+- [x] **Benchmark 2: propagation.** Known 0/1/2-hop decay, temporal onset/duration, and at least two prespecified intervention magnitudes; measure effects by hop and horizon. `--hop-decay 0.45`, `--magnitude 4 12`, decay and plateau shapes. **Awaiting the run.**
+- [x] **Benchmark 3: confounded assignment (valuable).** Compare random placement with assignment dependent only on pre-crash congestion; quantify bias and overlap. Treat as sensitivity, not proof of real-data identification. `--placement congested` beside `uniform`. **Awaiting the run.**
+- [x] Use at least three **synthetic generation** seeds where feasible; never conflate those with training seeds. Each scenario runs at seeds 42/43/44. **Awaiting the run.**
 - [x] Preserve `Y(0)`, `Y(a)`, treatment label, ground-truth `tau`, event/road/time IDs and observation masks. All models score the **same** held-out interventions. `Disruptions.truth` carries all of them.
 - [ ] Report effect MAE/RMSE, average bias, estimated-vs-true trajectories, false neighbor spillover under the null, and event-bootstrap intervals. Avoid pooled-only metrics.
 
@@ -207,7 +207,7 @@ A coding agent can implement each workstream independently against the frozen in
 - [x] Synthetic ground truth is defined independently of which model happens to perform best; evaluate on held-out interventions.
 - [x] Clear denominator for every result (crashes, unique events, roads, road-time cells, matched controls). Separate full, observed, and fixed cohorts. `summarise` reports events, roads and cells; `n_controls` the matched controls; `availability.csv` the observed share; the fixed cohort is its own table.
 - [x] Missing readings are masked; `0 mph` sensitivity is explicitly a changed measurement convention and possibly changed population.
-- [ ] All paper numbers are read from saved machine-readable outputs. Generate a result index showing which source file populates which manuscript table/figure.
+- [x] All paper numbers are read from saved machine-readable outputs. Generate a result index showing which source file populates which manuscript table/figure. `scripts/aggregate.py` writes `paper/result_index.csv`, marking anything unfinished `missing` rather than filling it.
 - [ ] Compare the final paper to the original proposal's three questions and two hypotheses; explain changes as methodological refinements rather than invented new goals.
 - [ ] Final draft stays **balanced**: mark existing figures as completed and pending comparisons as pending, then write final interpretation after results arrive.
 

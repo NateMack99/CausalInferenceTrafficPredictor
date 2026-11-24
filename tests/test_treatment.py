@@ -12,6 +12,7 @@ from traffic_gml.evaluate import exposure_effects
 from traffic_gml.events import EXPOSURES, build_windows
 from traffic_gml.mock import make_mock
 from traffic_gml.models import build_model
+from traffic_gml.synthetic import exposure_labels, inject, treated_windows
 
 HISTORY, HORIZON = 4, 2
 
@@ -97,3 +98,22 @@ def test_outcomes_ignore_exposure_and_the_effect_is_a_head_contrast():
     frame = exposure_effects(model, data, edge_index)
     assert np.allclose(frame.effect, frame.factual - frame.untreated, atol=1e-4)
     assert (frame.loc[frame.exposure == none, "effect"] == 0.0).all()
+
+
+def test_injected_exposure_reaches_the_conditioned_heads():
+    """The benchmark asks the model for the injected exposure and for none, so
+    the labels it is asked about must be the ones that were injected."""
+    tables = make_mock(rows=4, cols=4, days=12, crashes=20, seed=0)
+    sets, edge_index = build_windows(tables, history=HISTORY, horizon=HORIZON, label_exposure=True)
+    disruptions = inject(sets["test"], edge_index, events=10, hops=2, seed=13)
+    exposed = treated_windows(sets["test"], disruptions)
+    exposed.exposure = torch.from_numpy(exposure_labels(disruptions)).long()
+
+    model = build_model("treatment_gcn", exposed, hidden=8, dropout=0.0).eval()
+    contrast = exposure_effects(model, exposed, edge_index)
+    scored = contrast.merge(
+        disruptions.truth[["origin", "road", "minutes", "hop"]],
+        on=["origin", "road", "minutes"],
+    )
+    assert len(scored)
+    assert (scored.exposure == scored.hop + 1).all()

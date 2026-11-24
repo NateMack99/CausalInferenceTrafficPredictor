@@ -6,7 +6,23 @@ work=$1
 data="$work/data"
 graph_dir="$work/graph"
 mkdir -p "$data" "$graph_dir"
-cp -n data/chicago-traffic-segments.json "$data/"
+# Carry the frozen road-network files in rather than rebuilding them.
+# OpenStreetMap is live, so a rebuild today yields different node ids than the
+# download Run A used and silently breaks every comparison against it.
+frozen=(
+    chicago-traffic-segments.json
+    chicago_road_network.graphml
+    speed_road_network.graphml
+    speed_roads.parquet
+    speed_segments.parquet
+)
+for file in "${frozen[@]}"; do
+    [[ ! -f "data/$file" ]] || cp -n "data/$file" "$data/"
+done
+if [[ ! -f "$data/chicago_road_network.graphml" ]]; then
+    echo "WARNING: no frozen road network in data/; rebuilding from live OSM." >&2
+    echo "Node ids will differ from Run A. See docs/hpc-run.md step 3." >&2
+fi
 if [[ ! -f "$data/parquet/chicago-speeds-history/_conversion.json" ]]; then
     uv run --no-sync python scripts/fetch_window.py --data-dir "$data" \
         --window 2024-07-01 2026-04-01 --kinds speeds

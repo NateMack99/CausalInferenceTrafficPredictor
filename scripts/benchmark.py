@@ -27,15 +27,43 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import torch
 
 from traffic_gml.data import load_tables
-from traffic_gml.evaluate import control_corrected, effect_recovery, effects, evaluate
-from traffic_gml.events import build_windows, fitted_cells, processed_tables, write_processed
-from traffic_gml.models import BASELINES, CONVS, TEMPORAL, build_model, resolve_device
-from traffic_gml.synthetic import PLACEMENTS, SHAPES, inject, matched_controls, treated_windows
+from traffic_gml.evaluate import (
+    control_corrected,
+    effect_recovery,
+    effects,
+    evaluate,
+    exposure_effects,
+)
+from traffic_gml.events import (
+    ABLATIONS,
+    ablate_edges,
+    build_windows,
+    fitted_cells,
+    processed_tables,
+    write_processed,
+)
+from traffic_gml.models import (
+    BASELINES,
+    CONVS,
+    TEMPORAL,
+    TREATMENT,
+    build_model,
+    resolve_device,
+)
+from traffic_gml.synthetic import (
+    PLACEMENTS,
+    SHAPES,
+    exposure_labels,
+    inject,
+    matched_controls,
+    treated_windows,
+)
 from traffic_gml.train import DEFAULTS, code_version, data_version, fit, set_seed
 
-MODELS = (*BASELINES, *CONVS, *TEMPORAL)
+MODELS = (*BASELINES, *CONVS, *TEMPORAL, *TREATMENT)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -55,6 +83,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     windows.add_argument("--history", type=int, default=12)
     windows.add_argument("--horizon", type=int, default=6)
     windows.add_argument("--exposure-hops", type=int, default=2)
+    windows.add_argument("--graph-ablation", default="real", choices=list(ABLATIONS))
+    windows.add_argument("--graph-seed", type=int)
     windows.add_argument(
         "--neighbour-hops",
         type=int,
@@ -105,6 +135,7 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         write_processed(tables, args.processed)
         source = args.processed
 
+    conditioned = [name for name in args.models if name in TREATMENT]
     sets, edge_index = build_windows(
         tables,
         history=args.history,
@@ -114,12 +145,20 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         stride=args.stride,
         static_features=args.static_features,
         drop_zero_speed=args.drop_zero_speed,
+        label_exposure=bool(conditioned),
     )
     train, test = sets["train"], sets["test"]
+    # `model_edges` for message passing, `edge_index` for injection: the
+    # exposure rings stay on the real graph so every arm scores the same
+    # interventions and only the topology the model sees changes.
+    graph_seed = args.seed if args.graph_seed is None else args.graph_seed
+    model_edges = ablate_edges(edge_index, train.num_roads, args.graph_ablation, graph_seed)
     print(
         f"{train.num_roads} roads, {edge_index.size(1):,} arcs, "
         + "  ".join(f"{n}={len(d):,}" for n, d in sets.items())
     )
+    if args.graph_ablation != "real":
+        print(f"graph ablation: {args.graph_ablation}, {model_edges.size(1):,} arcs for the model")
 
     # Inject into the held-out split only: a disruption in a window the model
     # trained on would score memorisation rather than recovery.
@@ -141,6 +180,13 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
     )
     treated = treated_windows(test, disruptions)
     identity = disruptions.events[["event_id", "origin"]]
+    # Injection stays on the crash-free split, so every model scores the same
+    # interventions. Only the exposure-conditioned arms need the injected
+    # labels, and only they train on the cohort that includes exposed roads.
+    if conditioned:
+        exposed = treated_windows(test, disruptions)
+        exposed.exposure = torch.from_numpy(exposure_labels(disruptions)).long()
+        factual = {name: data.factual() for name, data in sets.items()}
     # Per (event, road): `pairs` has a row per (event, road, control), so
     # dividing by events would multiply by the roads in each event's rings.
     event_roads = max(len(pairs.drop_duplicates(subset=["event_id", "road"])), 1)
@@ -158,23 +204,41 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         # before it, so `--models gcn` and the full list would disagree and the
         # recorded seed would reproduce neither.
         set_seed(args.seed)
-        model = build_model(name, train, hidden=args.hidden)
+        supervision = factual if name in TREATMENT else sets
+        model = build_model(name, supervision["train"], hidden=args.hidden)
         fit(
             model,
-            sets,
-            edge_index,
+            supervision,
+            model_edges,
             epochs=args.epochs,
             patience=args.patience,
             batch_size=args.batch_size,
             device=args.device,
             verbose=False,
         )
-        forecast[name] = evaluate(model, test, edge_index, args.batch_size, args.device)
+        forecast[name] = evaluate(model, test, model_edges, args.batch_size, args.device)
 
-        event = effects(model, treated, edge_index, args.batch_size, args.device).merge(
+        if name in TREATMENT:
+            # The model's own two heads, asked for the injected exposure and for
+            # none. Nothing taught it the counterfactual, so this is a model
+            # contrast scored against a known answer, not an identified effect.
+            contrast = exposure_effects(model, exposed, model_edges, args.batch_size, args.device)
+            estimate = contrast.merge(identity, on="origin").rename(columns={"effect": "estimated"})
+            scores = {"exposure-head": effect_recovery(estimate, disruptions.truth)}
+            recovery.append(scores["exposure-head"].assign(model=name, estimator="exposure-head"))
+            pooled = scores["exposure-head"].query("group == 'pooled'").iloc[0]
+            hops = scores["exposure-head"].query("group == 'hop'").sort_values("value")
+            by_hop = "  ".join(f"h{int(r.value)} {r.effect_mae:5.3f}" for r in hops.itertuples())
+            print(
+                f"{name:16s} forecast MAE {forecast[name]['mae']:6.3f} mph   "
+                f"effect MAE pooled {pooled.effect_mae:6.3f}  {by_hop}"
+            )
+            continue
+
+        event = effects(model, treated, model_edges, args.batch_size, args.device).merge(
             identity, on="origin"
         )
-        control = effects(model, control_windows, edge_index, args.batch_size, args.device)
+        control = effects(model, control_windows, model_edges, args.batch_size, args.device)
         corrected = control_corrected(event, control, pairs)
 
         # Both estimators are scored on the *same* cells. `control_corrected`

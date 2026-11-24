@@ -261,7 +261,8 @@ window-overlap exclusion, and untreated training targets are checked
 against the frozen evaluation specification.
 
 \subsection{Treatment-Aware Graph and Non-Graph Models}
-A separate planned model explicitly conditions on crash exposure.
+A separate model explicitly conditions on crash exposure. It is
+implemented and queued; no result from it is reported here.
 An encoder $z_{ei}=f_\theta(X_{e,\le t_e},G)$ uses only pre-event
 information, followed by an exposure-conditional outcome function:
 \begin{equation}
@@ -319,8 +320,8 @@ A negative or null result is informative if supported by these tests.
 
 \subsection{Observational Diagnostics and Conditional Extensions}
 Our strongest observational checks are target-road pre-crash balance,
-pre-event pseudo-crash times, a spatial negative control,
-concurrent-crash exclusion, and common-event trajectories. We also
+pre-event pseudo-crash times, concurrent-crash flagging on the target road
+and its neighbors, and common-event trajectories. We also
 compare observation availability by exposure and horizon, because
 complete-case estimates could change when sensors or source coverage
 are correlated with incidents. Recorded zero speeds receive a
@@ -504,6 +505,13 @@ important variation by pre-crash traffic and incident characteristics.
 Direction and heterogeneity are therefore interpreted only where the
 recorded network and data coverage support them.
 
+We also considered an unexposed-road negative control, comparing rings
+beyond the two-hop exposure radius. We do not report one. Past that radius the
+crash arm stops being exposure-masked, so the control arm's clean-post filter
+begins applying to both arms alike, and the resulting step at that distance
+would measure the filter rather than traffic. We state this as a limitation
+instead of reporting a contrast we cannot interpret.
+
 The study is limited to matched incidents on monitored Chicago arterial
 segments, uses reported crash times and locations, and approximates
 interference using a finite observed graph. The synthetic benchmarks
@@ -527,11 +535,12 @@ neighbor-road comparisons survive falsification diagnostics.
 \pending{Insert concise final findings for RQ1--RQ3, including null,
 mixed, and inconclusive results where supported.}
 
-For reproducibility, the final release will identify the exact Run A
-source snapshot (including HPC-only path changes), study period,
-road-graph files, package lock, train/test partitions, masks,
-exposure definitions, seeds, Slurm settings and machine-readable output
-paths. Existing completed runs are preserved separately from each
+For reproducibility, the experiments are queued by a single command that
+submits a dependency-ordered job graph; each stage records a completion marker,
+so a resubmission resumes rather than repeats. Every job stores its commit,
+working-tree diff, source archive, package lock, Slurm settings and seeds. A
+generated result index names the file supplying each manuscript table and
+figure, and marks anything unfinished as missing rather than filling it. Existing completed runs are preserved separately from each
 follow-on experiment. Code and scripted analyses automatically
 construct labels, event cohorts, figures, and result tables; the
 counterfactual outcomes for real crashes remain unobserved.

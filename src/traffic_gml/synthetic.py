@@ -266,6 +266,20 @@ def inject(
     )
 
 
+def exposure_labels(disruptions: Disruptions) -> np.ndarray:
+    """`[bins, roads]` exposure states for the injected events, as
+    `events.EXPOSURES` indexes them: ring `hop` becomes label `hop + 1`.
+
+    Lets an exposure-conditioned model be asked for the outcome under the
+    injected exposure and under none, where the difference has a known answer.
+    """
+    truth = disruptions.truth
+    grid = np.zeros(disruptions.values.shape, dtype=np.int8)
+    bins = truth["origin"].to_numpy() + truth["minutes"].to_numpy() // BIN_MINUTES
+    grid[bins, truth["road"].to_numpy()] = truth["hop"].to_numpy() + 1
+    return grid
+
+
 def treated_windows(reference: Windows, disruptions: Disruptions) -> Windows:
     """Event windows over the treated grid, scoring every road a disruption reached.
 
