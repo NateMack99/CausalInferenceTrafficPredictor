@@ -87,22 +87,25 @@ def ablation_table(run: Path) -> pd.DataFrame:
 
 
 def treatment_table(run: Path) -> pd.DataFrame:
-    """Exposure-conditioned arms. Forecast error only: scoring their head
-    contrast against injected truth is not implemented, so no effect column is
-    invented here."""
+    """Exposure-conditioned arms beside the residual estimator they are tested
+    against, scored on the same injected interventions."""
     rows = []
-    for arm in sorted((run / "treatment").glob("*/metrics.json")):
-        metrics = json.loads(arm.read_text())
-        settings = json.loads((arm.parent / "args.json").read_text())
-        rows.append(
-            {
-                "model": settings["model"],
-                "seed": int(settings["seed"]),
-                "neighbour_hops": int(settings["neighbour_hops"]),
-                "forecast_mae": metrics["splits"]["test"]["mae"],
-                "forecast_rmse": metrics["splits"]["test"]["rmse"],
-            }
-        )
+    for arm in sorted((run / "treatment").glob("*/effect_recovery.csv")):
+        recovery = pd.read_csv(arm)
+        forecast = pd.read_csv(arm.parent / "forecast.csv")
+        seed = json.loads((arm.parent / "summary.json").read_text())["args"]["seed"]
+        pooled = recovery.loc[recovery.group == "pooled"]
+        for model in forecast.model:
+            hit = pooled.loc[pooled.model == model]
+            rows.append(
+                {
+                    "model": model,
+                    "estimator": hit.estimator.iloc[0] if len(hit) else None,
+                    "seed": int(seed),
+                    "forecast_mae": float(forecast.loc[forecast.model == model, "mae"].iloc[0]),
+                    "effect_mae": float(hit.effect_mae.iloc[0]) if len(hit) else None,
+                }
+            )
     frame = pd.DataFrame(rows)
     return frame.sort_values(["model", "seed"], ignore_index=True) if len(frame) else frame
 

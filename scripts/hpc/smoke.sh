@@ -37,11 +37,10 @@ uv run --no-sync python scripts/benchmark.py --data "$smoke_out/data" \
     --models gcn --static-features length_m --events 8 --controls 5 \
     --epochs 1 --patience 1 --device "$device" --graph-ablation permuted \
     --out "$smoke_out/graph-ablation/gcn-permuted-seed42"
-for model in treatment_mlp treatment_gcn; do
-    uv run --no-sync python -m traffic_gml.train --data "$smoke_out/data" \
-        --static-features length_m degree --neighbour-hops 1 --model "$model" \
-        --epochs 1 --patience 1 --device "$device" --out "$smoke_out/treatment"
-done
+uv run --no-sync python scripts/benchmark.py --data "$smoke_out/data" \
+    --models treatment_mlp treatment_gcn gcn --static-features length_m degree \
+    --neighbour-hops 1 --events 8 --controls 5 --epochs 1 --patience 1 \
+    --device "$device" --out "$smoke_out/treatment/seed42"
 uv run --no-sync python scripts/event_study.py --data "$smoke_out/data" \
     --hops 2 --controls 5 --match-target --out "$smoke_out/matching/matched-target"
 uv run --no-sync python scripts/aggregate.py --run "$smoke_out" \

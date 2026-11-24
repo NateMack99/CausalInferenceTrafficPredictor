@@ -119,7 +119,7 @@ event=$(submit event cpu 04:00:00 "afterok:$audit")
 benchmark=$(submit benchmark gpu 24:00:00 "afterok:$audit")
 report=$(submit report cpu 00:30:00 "afterok:$main:$event:$benchmark")
 
-treatment=$(submit treatment gpu 24:00:00 "afterok:$report" '0-5')
+treatment=$(submit treatment gpu 24:00:00 "afterok:$report" '0-2')
 ablation=$(submit graph-ablation gpu 24:00:00 "afterok:$report" '0-11')
 
 matching=$(submit matching cpu 04:00:00 "afterok:$report" '0-5')

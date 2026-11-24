@@ -92,15 +92,16 @@ case "$stage" in
             --out "$run/graph-ablation/$model-$graph-seed$seed"
         ;;
     treatment)
-        # Both arms get the same neighbourhood summary, so the only difference
-        # is message passing. Factual supervision only; see docs/methodology.md.
-        models=(treatment_mlp treatment_gcn)
-        (( task >= 0 && task < 6 ))
-        model=${models[task % 2]}
-        seed=$((42 + task / 2))
-        uv run --no-sync python -m traffic_gml.train "${window[@]}" "${features[@]}" \
-            "${training[@]}" --neighbour-hops 1 --model "$model" --seed "$seed" \
-            --out "$run/treatment"
+        # Both arms in one job per seed: they then share an injection, which is
+        # what makes it a paired comparison. Both get the same neighbourhood
+        # summary, so the only difference is message passing.
+        (( task >= 0 && task < 3 ))
+        seed=$((42 + task))
+        uv run --no-sync python scripts/benchmark.py "${window[@]}" "${features[@]}" \
+            "${training[@]}" "${benchmark[@]}" --neighbour-hops 1 \
+            --models treatment_mlp treatment_gcn gcn --seed "$seed" \
+            --shape decay --duration 2 --placement uniform \
+            --out "$run/treatment/seed$seed"
         ;;
     matching)
         (( task >= 0 && task < 6 ))
