@@ -53,6 +53,13 @@ PR #3 plus `scripts/experiment.py`:
   models aggregate for themselves. Without it a `gcn`-`mlp` gap mixes connectivity with
   one model simply being able to see its neighbours. Off by default and unused so far;
   `docs/experiments.md` records why an ablation arm must leave it off.
+- Exposure-conditioned outcome models (`treatment_mlp`, `treatment_gcn`): `Forecaster`'s
+  trunk over pre-treatment inputs with one head per exposure state
+  (`none/own/hop1/hop2`), supervised on the observed factual outcome only.
+  `evaluate.exposure_effects` reads a cell's outcome under its factual exposure and
+  under `none`. That difference is a contrast between two of the model's own heads:
+  nothing in the data says what an exposed road would have done unexposed, so factual
+  supervision does not identify it. No run has used these yet.
 - `τ̂` per window, road and step (`evaluate.effects`), and the crash-minus-matched-control
   estimate with a 95% interval (`evaluate.placebo_corrected`), both arms averaged
   within a crash first so the interval is event-clustered and a crash that drew more

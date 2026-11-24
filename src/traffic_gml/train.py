@@ -24,7 +24,16 @@ from torch.utils.data import DataLoader
 from .data import LOCAL_TZ, load_tables, local_time
 from .evaluate import LOSSES, evaluate, masked_loss
 from .events import ABLATIONS, GRAPH_FEATURES, Windows, ablate_edges, build_windows
-from .models import BASELINES, CONVS, TEMPORAL, build_model, on_device, predict, resolve_device
+from .models import (
+    BASELINES,
+    CONVS,
+    TEMPORAL,
+    TREATMENT,
+    build_model,
+    on_device,
+    predict,
+    resolve_device,
+)
 
 
 def data_version(tables: dict, path: Path) -> dict:
@@ -127,7 +136,9 @@ DEFAULTS = {"epochs": 30, "lr": 1e-3, "batch_size": 64, "patience": 5, "hidden":
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train one no-accident speed forecaster.")
     parser.add_argument("--data", type=Path, default=Path("data/processed"))
-    parser.add_argument("--model", default="gcn", choices=[*BASELINES, *CONVS, *TEMPORAL])
+    parser.add_argument(
+        "--model", default="gcn", choices=[*BASELINES, *CONVS, *TEMPORAL, *TREATMENT]
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=Path, default=Path("outputs"))
 
@@ -199,7 +210,10 @@ def main(argv: list[str] | None = None) -> dict:
         stride=args.stride,
         static_features=args.static_features,
         drop_zero_speed=args.drop_zero_speed,
+        label_exposure=args.model in TREATMENT,
     )
+    if args.model in TREATMENT:
+        sets = {name: data.factual() for name, data in sets.items()}
     graph_seed = args.seed if args.graph_seed is None else args.graph_seed
     edge_index = ablate_edges(edge_index, sets["train"].num_roads, args.graph_ablation, graph_seed)
     if args.graph_ablation != "real":

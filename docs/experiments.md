@@ -59,6 +59,13 @@ Conventions that are not flags:
   still arrive as truth rows. Any neighbour effect recovered against them is
   spurious by construction, which is what Benchmark 1 measures. `FLOOR` is
   0.0 mph, so a zero-effect write cannot clip an observed speed.
+- **The exposure-conditioned models train on a different cohort.** The
+  forecasting sets keep only crash-free roads, so `treatment_mlp` and
+  `treatment_gcn` call `Windows.factual()` to make exposed roads scorable.
+  Same grid, origins and splits; only `usable` is relaxed. Their forecast MAE
+  is therefore not comparable with the other models' and belongs in its own
+  table. The exposure label of a road with two concurrent crashes is the
+  nearer one.
 - **The neighbour-mean channel is graph-derived, so an ablation arm must turn
   it off.** `--neighbour-hops k` appends one input channel holding the mean
   speed over each road's `k`-hop neighbourhood, built from the real graph and

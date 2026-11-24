@@ -22,7 +22,7 @@ import torch
 from torch import Tensor, nn
 from torch_geometric.nn import GCNConv, SAGEConv
 
-from .events import WEEK_SLOTS, Windows
+from .events import EXPOSURES, WEEK_SLOTS, Windows
 
 
 def resolve_device(choice: str = "cpu") -> torch.device:
@@ -121,14 +121,18 @@ class Forecaster(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.head = nn.Linear(hidden, data.horizon)
 
-    def forward(self, x: Tensor, x_mask: Tensor, edge_index: Tensor) -> Tensor:
+    def trunk(self, x: Tensor, x_mask: Tensor, edge_index: Tensor) -> Tensor:
+        """Pre-treatment representation per road, `[batch, roads, hidden]`."""
         batch, history, roads, _ = x.shape
         features = torch.cat([x, x_mask.unsqueeze(-1).to(x.dtype)], dim=-1)
         flat = features.permute(0, 2, 1, 3).reshape(batch, roads, -1)
         h = torch.relu(self.encoder(flat))
         for layer in self.layers:
             h = h + self.dropout(torch.relu(layer(h, edge_index)))
-        return self.head(h).permute(0, 2, 1)
+        return h
+
+    def forward(self, x: Tensor, x_mask: Tensor, edge_index: Tensor) -> Tensor:
+        return self.head(self.trunk(x, x_mask, edge_index)).permute(0, 2, 1)
 
 
 class SpatioTemporal(nn.Module):
@@ -174,10 +178,45 @@ class SpatioTemporal(nn.Module):
         return self.head(h).permute(0, 2, 1)
 
 
+class TreatmentAware(Forecaster):
+    """`Forecaster`'s trunk with one outcome head per exposure state.
+
+    The trunk sees only pre-treatment inputs, so exposure enters at the head
+    alone and `outcomes` returns every state for the same window. Training
+    supervises the factual state only; the others are predictions, and a
+    difference between two of them is a model contrast, not an identified
+    causal effect.
+    """
+
+    def __init__(
+        self,
+        data: Windows,
+        hidden: int = 64,
+        layers: int = 2,
+        conv: type[nn.Module] = GCNConv,
+        dropout: float = 0.1,
+    ):
+        super().__init__(data, hidden, layers, conv, dropout)
+        self.head = nn.Linear(hidden, len(EXPOSURES) * data.horizon)
+
+    def outcomes(self, x: Tensor, x_mask: Tensor, edge_index: Tensor) -> Tensor:
+        """`[batch, exposures, horizon, roads]`."""
+        h = self.trunk(x, x_mask, edge_index)
+        batch, roads, _ = h.shape
+        out = self.head(h).reshape(batch, roads, len(EXPOSURES), -1)
+        return out.permute(0, 2, 3, 1)
+
+    def forward(self, x: Tensor, x_mask: Tensor, edge_index: Tensor, exposure: Tensor) -> Tensor:
+        outcomes = self.outcomes(x, x_mask, edge_index)
+        return outcomes.gather(1, exposure.unsqueeze(1)).squeeze(1)
+
+
 BASELINES = {"persistence": Persistence, "historical_mean": HistoricalMean}
 CONVS = {"mlp": _NoGraph, "gcn": GCNConv, "sage": SAGEConv}
 #: Spatiotemporal pair: `tgru` is `stgcn` without edges, at matched capacity.
 TEMPORAL = {"tgru": _NoGraph, "stgcn": GCNConv}
+#: Exposure-conditioned pair, matched the way `mlp` matches `gcn`.
+TREATMENT = {"treatment_mlp": _NoGraph, "treatment_gcn": GCNConv}
 
 
 def build_model(name: str, data: Windows, hidden: int = 64, layers: int = 2, dropout: float = 0.1):
@@ -187,10 +226,16 @@ def build_model(name: str, data: Windows, hidden: int = 64, layers: int = 2, dro
         return Forecaster(data, hidden, layers, CONVS[name], dropout)
     if name in TEMPORAL:
         return SpatioTemporal(data, hidden, layers, TEMPORAL[name], dropout)
-    raise ValueError(f"unknown model {name!r}; choose from {(*BASELINES, *CONVS, *TEMPORAL)}")
+    if name in TREATMENT:
+        return TreatmentAware(data, hidden, layers, TREATMENT[name], dropout)
+    raise ValueError(
+        f"unknown model {name!r}; choose from {(*BASELINES, *CONVS, *TEMPORAL, *TREATMENT)}"
+    )
 
 
 def predict(model, batch: dict[str, Tensor], edge_index: Tensor) -> Tensor:
+    if isinstance(model, TreatmentAware):
+        return model(batch["x"], batch["x_mask"], edge_index, batch["exposure"])
     if isinstance(model, nn.Module):
         return model(batch["x"], batch["x_mask"], edge_index)
     return model.predict(batch)

@@ -382,6 +382,7 @@ class Windows(Dataset):
         horizon: int,
         norm: tuple[float, float],
         neighbour: np.ndarray | None = None,
+        exposure: np.ndarray | None = None,
     ):
         self.values = torch.from_numpy(values)
         self.times = times
@@ -392,6 +393,7 @@ class Windows(Dataset):
         self.origins = torch.from_numpy(origins)
         self.usable = torch.from_numpy(usable)
         self.neighbour = None if neighbour is None else torch.from_numpy(neighbour)
+        self.exposure = None if exposure is None else torch.from_numpy(exposure)
         self.history, self.horizon = history, horizon
         self.mean, self.std = norm
         self.num_roads = values.shape[1]
@@ -403,6 +405,15 @@ class Windows(Dataset):
         other.origins = torch.from_numpy(np.asarray(origins, dtype=np.int64))
         other.usable = torch.from_numpy(np.asarray(usable, dtype=bool))
         return other
+
+    def factual(self) -> Windows:
+        """Same windows with exposed roads scorable, for factual supervision.
+
+        The forecasting sets keep only crash-free roads, so an exposure-
+        conditioned head would otherwise never see a gradient.
+        """
+        usable = np.ones((len(self.origins), self.num_roads), dtype=bool)
+        return self.at(self.origins.numpy(), usable)
 
     def encode(self, speed):  # Tensor or ndarray, both used
         return (speed - self.mean) / self.std
@@ -431,13 +442,16 @@ class Windows(Dataset):
             nearby = self.neighbour[lag]
             reported = torch.isfinite(nearby)
             channels.append(torch.where(reported, self.encode(nearby), 0.0).unsqueeze(-1))
-        return {
+        item = {
             "x": torch.cat(channels, dim=-1),
             "x_mask": x_mask,
             "y": torch.where(y_seen, self.encode(future), 0.0),
             "y_mask": y_seen & self.usable[i].unsqueeze(0),
             "origin": self.origins[i],
         }
+        if self.exposure is not None:
+            item["exposure"] = self.exposure[t + 1 : t + 1 + self.horizon].long()
+        return item
 
 
 def _span_sum(cumulative: np.ndarray, low: np.ndarray, high: np.ndarray) -> np.ndarray:
@@ -532,6 +546,29 @@ def crash_cells(
     return (hit @ neighbourhood(edge_index, len(segment_ids), hops)).toarray()
 
 
+#: Factual exposure states, indexed by `exposure_labels`.
+EXPOSURES = ("none", "own", "hop1", "hop2")
+
+
+def exposure_labels(
+    crashes: pd.DataFrame,
+    times: pd.DatetimeIndex,
+    segment_ids: np.ndarray,
+    edge_index: Tensor,
+    horizon: int,
+) -> np.ndarray:
+    """`[bins, roads]` int8 index into `EXPOSURES`.
+
+    The nearest crash wins, so a road exposed by two crashes at once takes the
+    smaller hop rather than being dropped or counted twice.
+    """
+    labels = np.zeros((len(times), len(segment_ids)), dtype=np.int8)
+    for hop in reversed(range(len(EXPOSURES) - 1)):
+        reached = crash_cells(crashes, times, segment_ids, edge_index, hop, horizon)
+        labels[reached] = hop + 1
+    return labels
+
+
 #: Static features derived from the graph, so an ablation leaves them inconsistent.
 GRAPH_FEATURES = ("degree", "betweenness")
 
@@ -594,6 +631,7 @@ def build_windows(
     static_features: list[str] | tuple[str, ...] = (),
     drop_zero_speed: bool = False,
     neighbour_hops: int = 0,
+    label_exposure: bool = False,
 ) -> tuple[dict[str, Windows], Tensor]:
     """Crash-free train/validation/test window sets, and the road `edge_index`.
 
@@ -644,6 +682,9 @@ def build_windows(
         reach = neighbourhood(edges, len(segment_ids), neighbour_hops)
         masked = np.where(clean & np.isfinite(values), values, np.nan).astype(values.dtype)
         neighbour = smooth_over_neighbourhood(masked, reach)
+    exposure = None
+    if label_exposure:
+        exposure = exposure_labels(tables["crashes"], times, segment_ids, edges, horizon)
     sets = {
         name: Windows(
             values,
@@ -656,6 +697,7 @@ def build_windows(
             horizon,
             norm,
             neighbour,
+            exposure,
         )
         for name, index in splits.items()
     }

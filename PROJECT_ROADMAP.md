@@ -107,10 +107,10 @@ A coding agent can implement each workstream independently against the frozen in
 
 **Purpose:** Test explicit intervention conditioning rather than only forecasts of untreated speed.
 
-- [ ] Generate automated factual exposure labels `none/own/1-hop/2-hop` and the corresponding observed speed targets; reject ambiguous simultaneous exposure or use a documented priority rule.
-- [ ] Implement a simple exposure-conditioned MLP and graph encoder (GCN or STGCN), each with shared pre-treatment representation and exposure-specific head/embedding; supervise **only the observed factual outcome**.
-- [ ] Give the MLP the same pre-event neighborhood information in aggregated form (`--neighbour-hops`, implemented and unused); keep optimization budget, training sample, masks, horizons and exposure coding aligned.
-- [ ] At evaluation, predict the same road/horizon **with the specified exposure and with no exposure**; score their difference against synthetic ground truth. Compare with the original residual-based estimator.
+- [x] Generate automated factual exposure labels `none/own/1-hop/2-hop` and the corresponding observed speed targets; reject ambiguous simultaneous exposure or use a documented priority rule. `events.exposure_labels`; concurrent exposure resolves to the nearer crash.
+- [x] Implement a simple exposure-conditioned MLP and graph encoder (GCN or STGCN), each with shared pre-treatment representation and exposure-specific head/embedding; supervise **only the observed factual outcome**. `models.TreatmentAware` as `treatment_mlp` and `treatment_gcn`, trained on `Windows.factual()`.
+- [x] Give the MLP the same pre-event neighborhood information in aggregated form (`--neighbour-hops`); keep optimization budget, training sample, masks, horizons and exposure coding aligned.
+- [ ] At evaluation, predict the same road/horizon **with the specified exposure and with no exposure**; score their difference against synthetic ground truth. Compare with the original residual-based estimator. `evaluate.exposure_effects` provides the readout; the scoring needs the run.
 - [ ] Check exposure overlap, head utilization, masking, training/evaluation leaks, and small synthetic examples with analytically known answers before large training.
 - [ ] Use observational outputs as a robustness comparison, **not** to tune methods to yield desired causal signs. Two potential-outcome heads do not alone resolve unmeasured confounding.
 
