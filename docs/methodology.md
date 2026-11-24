@@ -48,8 +48,15 @@ PR #3 plus `scripts/experiment.py`:
   and crash masking that spreads `--exposure-hops` across the graph and `--horizon` bins
   forward (`events.py`). Ten-minute bins; see `train.py --help` for the window flags.
 - Forecast MAE/RMSE in mph, overall and per horizon step (`evaluate.evaluate`).
+- An optional neighbourhood-mean speed input channel (`--neighbour-hops`), so the
+  non-graph models can be given the same pre-crash neighbour information the graph
+  models aggregate for themselves. Without it a `gcn`-`mlp` gap mixes connectivity with
+  one model simply being able to see its neighbours. Off by default and unused so far;
+  `docs/experiments.md` records why an ablation arm must leave it off.
 - `τ̂` per window, road and step (`evaluate.effects`), and the crash-minus-matched-control
-  estimate with a 95% interval (`evaluate.placebo_corrected`).
+  estimate with a 95% interval (`evaluate.placebo_corrected`), both arms averaged
+  within a crash first so the interval is event-clustered and a crash that drew more
+  controls does not weigh more.
 - Known-effect injection into real held-out crash-free windows (`synthetic.py`, PR #8):
   a two-shape time profile, `hop_decay ** hop` spatial spread, uniform or
   pre-congestion-dependent placement, and a truth table recording the effect realised in
@@ -101,8 +108,7 @@ PR #3 plus `scripts/experiment.py`:
   is much stricter than the estimator is, since a masked target contributes nothing to its
   bin, so reading the last row as the sample size understates it several-fold.
 
-Limits of what exists: `evaluate.placebo_corrected`'s intervals are event-level but not
-clustered, and a crash is assumed to contaminate for `horizon` bins after it is reported
+Limits of what exists: a crash is assumed to contaminate for `horizon` bins after it is reported
 — an assumption, not a measurement. The matched event study does report clustered
 intervals and does reach neighbouring rings, but it controls only for each road's own
 level, the slot of the week and road identity: not for weather, not for why this road had

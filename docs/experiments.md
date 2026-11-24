@@ -18,6 +18,7 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | Splits | chronological 70/15/15, gap `ceil((L+H)/stride)` windows | `events.build_windows` |
 | Seed | 42 | `--seed` |
 | Static features | `length_m degree betweenness` | `--static-features` |
+| Neighbour summary | off | `--neighbour-hops` |
 | Graph ablation | `real` | `--graph-ablation` |
 | Ablation seed | follows `--seed` | `--graph-seed` |
 | Optimiser | AdamW, lr 1e-3, weight decay 1e-4 | `train.fit` |
@@ -50,6 +51,20 @@ Conventions that are not flags:
 - **Coverage tables always describe the real graph.** The funnel and the
   neighbour-observability table are computed on the real `edge_index` even in an
   ablation arm, so hop-ring sample sizes stay comparable across arms.
+
+- **The neighbour-mean channel is graph-derived, so an ablation arm must turn it
+  off.** `--neighbour-hops k` appends one input channel holding the mean speed
+  over each road's `k`-hop neighbourhood, built from the **real** graph and from
+  masked cells only, so a crashed or unobserved neighbour never enters it. It is
+  the fair-baseline input the comparison contract asks for: without it `mlp` and
+  `tgru` see only their own road, so a `gcn`-`mlp` gap mixes connectivity with
+  the plain fact that one model can see its neighbours at all. Run ablation arms
+  with `--neighbour-hops 0`; `scripts/experiment.py` warns otherwise. Default is
+  off so the frozen baselines stay reproducible, and **no run has yet used it**.
+- **A control window's road must be crash-free within the same 2 undirected
+  hops**, across its whole lag-and-horizon span, not merely on its own road.
+  Control admissibility reads the same `crash_cells` grid that masks training
+  cells, so the control no-exposure radius always equals `--exposure-hops`.
 
 - **Timestamps are naive local time** (America/Chicago), never UTC. See `docs/data.md`.
 - **Splits are chronological, never random.** Windows overlap at stride 1, so a
@@ -243,6 +258,21 @@ control arm's crash-free post-span filter is one-sided and keeps the calmer
 control weeks, worth up to 0.02 mph; and the crash-time rounding recorded below
 attenuates everything here.
 
+## Run A provenance
+
+`PROJECT_ROADMAP.md` logs commit `40f672e` for Run A. That commit **cannot** run
+the job matrix: `scripts/hpc/*` called `scripts/midpoint.py`, which the same
+merge had renamed to `scripts/experiment.py`, and the runner had neither
+`--data-only`, which `prepare.sh` depends on, nor `--batch-size`, which the
+`main` stage passes. The code that actually ran therefore differed from the
+logged commit in at least those three ways, all now repaired.
+
+The authoritative snapshot of any run is not its commit but the metadata
+`scripts/hpc/run.sh` writes beside it: `commit.txt`, `git-status.txt`,
+`changes.patch`, `source.tar.gz`, `lock.sha256`, `packages.txt`, `slurm.txt` and
+`command.sh`. Read those before reproducing Run A, and do not claim the commit
+alone reproduces it until a rerun has been compared against the saved outputs.
+
 ## Frozen midpoint baseline
 
 The November 9, 2026 midpoint review. Preserved so later work has a fixed point
@@ -329,6 +359,18 @@ are immaterial at this scale, the third is not):
   on this count**, and it is the one open issue here that could move the
   headline rather than its third decimal. Unquantified; it needs either a
   finer event time or a sensitivity check that shifts the origin back a bin.
+
+- **The corrected estimate weighted control cells, not crashes.**
+  `evaluate.placebo_corrected` averaged every control cell, so a crash that drew
+  five matched controls counted five times against a crash that drew one, and
+  the interval treated those cells as independent. Both now average within a
+  crash first, which is the estimand the contract specifies. The crash arm is
+  unchanged to the bit, because a crash-segment-only estimate already has one
+  cell per crash per bin. On the mock fixture the control arm moves by up to
+  0.085 mph and the effect by up to 0.045 mph, with slightly wider intervals.
+  **Every corrected estimate above predates this fix**, and on the real data the
+  effects are -0.26 to -0.68 mph, so a shift of that size is not negligible
+  relative to them. The output gains an `events` column; `n` still counts cells.
 
 **What this baseline does not establish:** the controlled gcn–mlp gap is 0.022 mph
 on one seed, so no graph advantage is shown; effects are crash-segment only, so
