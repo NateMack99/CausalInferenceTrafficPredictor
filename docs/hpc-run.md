@@ -239,10 +239,12 @@ separated from pre-existing differences.
 | `aggregate` | CPU | paper tables, the ablation figure, the result index |
 | `finish` | CPU | final status summary |
 
-Primary results are queued first, so a wall-time loss costs the least
-important work. GPU arrays run two at a time; raise it with
-`GPU_CONCURRENCY=4` if your allocation allows, or drop it to 1 if `interactive`
-limits how many jobs you may hold.
+Every experiment stage depends only on `audit`, which writes the checksum they
+all verify, so the scheduler decides the order and one stage failing never
+blocks another. `report` is the only stage that reads other stages' outputs.
+Expect most of the matrix to sit pending at once. GPU arrays run two at a time;
+raise it with `GPU_CONCURRENCY=4` if your allocation allows, or drop it to 1 if
+`interactive` limits how many jobs you may hold.
 
 **If a stage runs out of the twelve hours**, it leaves no marker and `--resume`
 runs it again, which only helps if it can finish next time. `main` and
