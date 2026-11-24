@@ -25,7 +25,7 @@ On real data, build the road graph first, then run the pipeline:
 ```bash
 uv run python scripts/build_graph.py --no-fetch \
     --crash-window 2025-03-01 2025-05-01 --speed-window 2025-03-01 2025-05-01
-uv run python scripts/experiment.py --speeds data/parquet/chicago-speeds \
+uv run python scripts/experiment.py --speeds data/parquet/chicago-speeds-history \
     --graph outputs/<stem>_segments.graphml --crashes outputs/<stem>_crash_segments.csv \
     --window 2025-03-01 2025-05-01 --static-features length_m degree betweenness
 ```

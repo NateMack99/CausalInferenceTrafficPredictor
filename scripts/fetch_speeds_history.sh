@@ -17,12 +17,13 @@ START="$1"
 END="$2"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-DATA_DIR="$PROJECT_DIR/data"
+# DATA_DIR may point at a per-run directory; the saved token stays in the repo.
+DATA_DIR="${DATA_DIR:-$PROJECT_DIR/data}"
 OUT="${3:-$DATA_DIR/chicago-speeds-history.csv}"
 CHUNKS="$DATA_DIR/speed-chunks"
 
-if [[ -f "$DATA_DIR/.env" ]]; then
-    source "$DATA_DIR/.env"
+if [[ -f "$PROJECT_DIR/data/.env" ]]; then
+    source "$PROJECT_DIR/data/.env"
 fi
 TOKEN_ARGS=()
 if [[ -n "${CHICAGO_DATA_APP_TOKEN:-}" ]]; then
@@ -37,7 +38,7 @@ else
     exit 1
 fi
 
-mkdir -p "$CHUNKS"
+mkdir -p "$CHUNKS" "$(dirname -- "$OUT")"
 
 # Era spans below are the *bulk* data, verified against the portal on
 # 2026-11-22 -- not the dataset titles and not their min/max metadata. Both
@@ -100,6 +101,6 @@ done <<<"$plan"
 mv "$OUT.part" "$OUT"
 echo "Wrote $OUT ($(($(wc -l <"$OUT") - 1)) data rows)"
 echo
-echo "Next, convert it (this replaces data/parquet/chicago-speeds):"
+echo "Next, convert it (this replaces data/parquet/chicago-speeds-history):"
 echo "  uv run python scripts/convert_to_parquet.py $OUT --kind speeds --overwrite"
 echo "Monthly chunks stay in $CHUNKS; delete them once the conversion succeeds."

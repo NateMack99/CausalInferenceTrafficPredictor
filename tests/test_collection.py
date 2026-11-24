@@ -85,7 +85,7 @@ def test_graph_windows_and_plot(tmp_path):
         }
     )
     for name, kind, frame in [
-        ("chicago-speeds", "speeds", speeds),
+        ("chicago-speeds-history", "speeds", speeds),
         ("chicago-crashes", "crashes", crashes),
     ]:
         source = tmp_path / f"{name}.csv"

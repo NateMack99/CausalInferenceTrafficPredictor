@@ -109,7 +109,7 @@ def road(tmp_path_factory):
         columns=["CRASH_RECORD_ID", "CRASH_DATE", "LATITUDE", "LONGITUDE"],
     )
     for name, kind, frame in [
-        ("chicago-speeds", "speeds", speeds),
+        ("chicago-speeds-history", "speeds", speeds),
         ("chicago-crashes", "crashes", crashes),
     ]:
         frame.to_csv(data / f"{name}.csv", index=False)

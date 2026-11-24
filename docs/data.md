@@ -117,7 +117,7 @@ bash scripts/fetch_data.sh --crashes-only   # Crashes and their Parquet conversi
 Convert a CSV already on disk without fetching again:
 
 ```bash
-uv run python scripts/convert_to_parquet.py data/chicago-speeds.csv --kind speeds
+uv run python scripts/convert_to_parquet.py data/chicago-speeds-history.csv --kind speeds
 uv run python scripts/convert_to_parquet.py data/chicago-crashes.csv --kind crashes
 ```
 
@@ -127,7 +127,7 @@ in the script to move the study period, keeping it inside the available speed hi
 Replacement is staged: a completed conversion replaces the previous dataset including
 obsolete partitions, a failed one leaves it intact.
 
-Converted datasets live in `data/parquet/chicago-speeds/` and
+Converted datasets live in `data/parquet/chicago-speeds-history/` and
 `data/parquet/chicago-crashes/`, partitioned as `date=2025-01-01/`. `_conversion.json`
 records row counts, the timestamp range, and the source file. Read a time range with
 `data.load_speed_dataset(path, (start, end))`, which prunes whole `date` partitions before
@@ -208,7 +208,7 @@ speed in the window. Crash direction remains unresolved.
 
 ## Local paths
 
-- `data/`: unchanged downloaded files (`chicago-speeds.csv`, `chicago-crashes.csv`,
+- `data/`: unchanged downloaded files (`chicago-speeds-history.csv`, `chicago-crashes.csv`,
   `chicago-traffic-segments.json`, the street-network GraphML) and the speed-road reference.
 - `data/parquet/`: converted, partitioned staging datasets.
 - `data/processed/`: the four contract tables above.
