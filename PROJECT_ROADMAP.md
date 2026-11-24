@@ -58,10 +58,14 @@ the clauses below.
   the record rather than the commit. Confirming reproduction needs a rerun.
 - [x] **Splits:** chronological 70/15/15 with a `ceil((L+H)/stride)` embargo;
   synthetic train and test interventions disjoint.
-- [ ] **Exposure:** rings from the real graph, undirected; a control's
-  no-exposure radius equals `--exposure-hops`. **Open:** two crashes with
-  overlapping rings leave a road's hop label ambiguous. Workstream A owns it,
-  because choosing the rule needs the comparison run.
+- [x] **Exposure:** rings from the real graph, undirected; a control's
+  no-exposure radius equals `--exposure-hops`. Rings are per event, so
+  concurrent crashes are a confound rather than a label clash, and each is
+  handled deterministically: a second crash in a ring road's pre span excludes
+  the row via `clean`, one in its post span sets `other_crash` within a hop,
+  and `effect_excluding_overlaps` is the excluded cohort beside the
+  available-case estimate. `events.exposure_labels` resolves workstream C's
+  labels to the nearer crash.
 - [x] **Same target:** an ablation changes message passing only.
 - [x] **Pre-treatment inputs:** `x_mask` masks contaminated and missing inputs
   alike; injection never enters the input history.
