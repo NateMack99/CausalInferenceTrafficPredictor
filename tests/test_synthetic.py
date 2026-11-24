@@ -480,3 +480,24 @@ def test_both_arms_share_inputs_including_the_neighbour_channel():
     for i in range(len(treated)):
         assert torch.equal(treated[i]["x"], untreated[i]["x"])
     assert not torch.equal(treated[0]["y"], untreated[0]["y"])
+
+
+def test_a_zero_decay_injection_is_the_synthetic_null(built):
+    """Benchmark 1: a real crash-road effect and a true zero on every outer ring.
+
+    This needs no separate generator because `inject` labels a `want == 0` ring
+    instead of skipping it, so the outer rings arrive as honest zero-effect
+    truth rows and any neighbour effect scored against them is spurious by
+    construction. Dropping that labelling would silently delete the null.
+    """
+    sets, edge_index = built
+    disruptions = inject(sets["test"], edge_index, events=10, hops=2, hop_decay=0.0, seed=13)
+    truth = disruptions.truth
+
+    assert set(truth.hop) == {0, 1, 2}
+    assert (truth.loc[truth.hop == 0, "true_effect"] < 0).all()
+    assert (truth.loc[truth.hop > 0, "true_effect"] == 0.0).all()
+
+    moved = ~np.isclose(disruptions.values, disruptions.untreated, equal_nan=True)
+    crash_road_cells = truth[truth.hop == 0].apply(cell_of, axis=1)
+    assert set(zip(*np.nonzero(moved), strict=True)) == set(crash_road_cells)

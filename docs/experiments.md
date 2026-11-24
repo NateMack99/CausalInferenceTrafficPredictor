@@ -29,6 +29,7 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | Benchmark events | 200 | `benchmark.py --events` |
 | Benchmark controls | 5 per event road | `benchmark.py --controls` |
 | Injected rings | 2, decaying 0.45 per hop | `--hops`, `--hop-decay` |
+| Synthetic null | `--hop-decay 0`, rings still labelled | `--hop-decay` |
 | Injected time shape | `decay`, half-life 2 bins | `--shape`, `--duration` |
 | Event placement | `uniform` | `--placement` |
 | Event-study rings | 2, must not exceed `--exposure-hops` | `event_study.py --hops` |
@@ -52,6 +53,12 @@ Conventions that are not flags:
   neighbour-observability table are computed on the real `edge_index` even in an
   ablation arm, so hop-ring sample sizes stay comparable across arms.
 
+- **The synthetic null needs no separate generator.** `--hop-decay 0` keeps
+  the crash-road effect and sets every outer ring to exactly zero, and because
+  `inject` labels a zero-effect ring rather than skipping it, rings 1 and 2
+  still arrive as truth rows. Any neighbour effect recovered against them is
+  spurious by construction, which is what Benchmark 1 measures. `FLOOR` is
+  0.0 mph, so a zero-effect write cannot clip an observed speed.
 - **The neighbour-mean channel is graph-derived, so an ablation arm must turn it
   off.** `--neighbour-hops k` appends one input channel holding the mean speed
   over each road's `k`-hop neighbourhood, built from the **real** graph and from
