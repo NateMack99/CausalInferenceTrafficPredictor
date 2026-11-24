@@ -34,7 +34,7 @@ case "$stage" in
     main|main-nozero)
         extra=()
         [[ "$stage" != main-nozero ]] || extra=(--drop-zero-speed)
-        uv run --no-sync python scripts/midpoint.py "${window[@]}" "${features[@]}" \
+        uv run --no-sync python scripts/experiment.py "${window[@]}" "${features[@]}" \
             "${training[@]}" --seed 42 --controls 5 --effect-model gcn \
             "${extra[@]}" --out "$run/$stage-seed42"
         ;;

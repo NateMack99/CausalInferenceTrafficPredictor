@@ -4,7 +4,7 @@ Joins the speed, crash and road-graph outputs into the model contract, trains
 every model on identical splits, estimates crash effects against matched
 accident-free controls, and writes figures plus a results table.
 
-    uv run python scripts/experiment.py --speeds data/parquet/chicago-speeds \
+    uv run python scripts/experiment.py --speeds data/parquet/chicago-speeds-history \
         --graph outputs/<stem>_segments.graphml \
         --crashes outputs/<stem>_crash_segments.csv \
         --window 2025-03-01 2025-05-01
@@ -174,6 +174,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="allow the join to replace existing tables in --processed",
     )
+    parser.add_argument(
+        "--data-only",
+        action="store_true",
+        help="write the matching and coverage audit, then stop before training",
+    )
     parser.add_argument("--history", type=int, default=12)
     parser.add_argument("--horizon", type=int, default=6)
     parser.add_argument("--exposure-hops", type=int, default=2)
@@ -196,6 +201,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=DEFAULTS["epochs"])
     parser.add_argument("--patience", type=int, default=DEFAULTS["patience"])
     parser.add_argument("--hidden", type=int, default=DEFAULTS["hidden"])
+    parser.add_argument("--batch-size", type=int, default=DEFAULTS["batch_size"])
     parser.add_argument("--controls", type=int, default=1, help="controls per crash")
     parser.add_argument("--effect-model", default="gcn", choices=MODELS)
     parser.add_argument("--seed", type=int, default=42)
@@ -290,40 +296,6 @@ def main(argv: list[str] | None = None) -> dict:
     print(f"  speed grid observed on {coverage:.1%} of [bin, road] cells")
     coverage_path = coverage_figure(train, args.out / "coverage.png")
 
-    metrics, fitted = {}, {}
-    for name in MODELS:
-        set_seed(args.seed)
-        model = build_model(name, train, hidden=args.hidden)
-        print(f"  training {name}", flush=True)
-        fit(
-            model,
-            sets,
-            model_edges,
-            epochs=args.epochs,
-            patience=args.patience,
-            device=args.device,
-        )
-        metrics[name] = evaluate(model, sets["test"], model_edges, device=args.device)
-        fitted[name] = model
-        row = metrics[name]
-        print(f"  {name:16s} test MAE {row['mae']:6.3f}  RMSE {row['rmse']:6.3f}")
-
-    # Written here, not at the end: everything below is cheap but can raise, and
-    # an exception after the training loop used to discard the whole GPU budget
-    # along with the one table that needed it.
-    results = pd.DataFrame(
-        [
-            {
-                "model": name,
-                "mae": values["mae"],
-                "rmse": values["rmse"],
-                **{f"mae_{k}min": v for k, v in values["mae_by_minutes"].items()},
-            }
-            for name, values in metrics.items()
-        ]
-    ).sort_values("mae")
-    results.to_csv(args.out / "results.csv", index=False)
-
     segment_ids = segment_ids_of(tables)
     table, control_table, event, control = event_datasets(
         train, tables["crashes"], segment_ids, controls=args.controls, seed=args.seed
@@ -351,6 +323,62 @@ def main(argv: list[str] | None = None) -> dict:
             f">=half {row.half_post_bins:6,}  full trajectory {row.full_trajectory:6,}  "
             f"({row.full_trajectory / max(len(table), 1):.1%})"
         )
+
+    if args.data_only:
+        audit = {
+            "args": {k: str(v) for k, v in vars(args).items()},
+            "code": code_version(),
+            "data": data_version(tables, args.data or args.speeds),
+            "roads": train.num_roads,
+            "edges": int(edge_index.size(1)),
+            "windows": {name: len(data) for name, data in sets.items()},
+            "crashes": len(table),
+            "control_pairs": len(control_table),
+            "grid_coverage": round(coverage, 4),
+            "coverage_funnel": (funnel.to_dict("records") if funnel is not None else None),
+            "neighbour_coverage": nearby.to_dict("records"),
+            "monthly_coverage": monthly.to_dict("records"),
+        }
+        (args.out / "audit.json").write_text(json.dumps(audit, indent=2) + "\n")
+        table.to_csv(args.out / "events.csv", index=False)
+        control_table.to_csv(args.out / "controls.csv", index=False)
+        print(f"wrote audit.json, events.csv and the coverage tables to {args.out}")
+        return audit
+
+    metrics, fitted = {}, {}
+    for name in MODELS:
+        set_seed(args.seed)
+        model = build_model(name, train, hidden=args.hidden)
+        print(f"  training {name}", flush=True)
+        fit(
+            model,
+            sets,
+            model_edges,
+            epochs=args.epochs,
+            patience=args.patience,
+            batch_size=args.batch_size,
+            device=args.device,
+        )
+        metrics[name] = evaluate(model, sets["test"], model_edges, device=args.device)
+        fitted[name] = model
+        row = metrics[name]
+        print(f"  {name:16s} test MAE {row['mae']:6.3f}  RMSE {row['rmse']:6.3f}")
+
+    # Written here, not at the end: everything below is cheap but can raise, and
+    # an exception after the training loop used to discard the whole GPU budget
+    # along with the one table that needed it.
+    results = pd.DataFrame(
+        [
+            {
+                "model": name,
+                "mae": values["mae"],
+                "rmse": values["rmse"],
+                **{f"mae_{k}min": v for k, v in values["mae_by_minutes"].items()},
+            }
+            for name, values in metrics.items()
+        ]
+    ).sort_values("mae")
+    results.to_csv(args.out / "results.csv", index=False)
 
     model = fitted[args.effect_model]
     # One key row per window, and `validate` so a future many-to-many merge
