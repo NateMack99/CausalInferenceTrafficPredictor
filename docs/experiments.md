@@ -79,6 +79,11 @@ Conventions that are not flags:
   Control admissibility reads the same `crash_cells` grid that masks training
   cells, so the control no-exposure radius always equals `--exposure-hops`.
 
+- **`availability.csv` is the missingness audit.** Eligible ring roads against
+  observed targets, by arm, hop and event-time bin. If crash exposure predicts
+  missingness the two arms diverge there, and the effect is read across
+  different populations per ring. Observed `0 mph` stays separate from an
+  unavailable reading throughout.
 - **`--match-target` matches the road an effect is measured on.** The control
   draw matches the crash road, so the ring roads carrying the hop effects are
   matched on nothing. `--match-target` keeps, per (event, ring road), the one

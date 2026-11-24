@@ -87,7 +87,7 @@ A coding agent can implement each workstream independently against the frozen in
 - [ ] Add 2–3 pre-event pseudo-crash/placebo times and one unrelated/unexposed-road comparison where logically valid; preserve sign, CI, and placebo-to-effect magnitude ratio as a diagnostic, **not** a probability.
 - [ ] Exclude or flag concurrent reported crashes on target/adjacent roads during the full input/outcome window; compare with original sample.
 - [ ] Report **available-case and fixed-event-cohort** 0/1/2-hop trajectories with event-level 95% intervals, per-horizon events, roads, controls, and denominators.
-- [ ] Audit speed availability by exposed/control status, hop, and event-time bin; test whether crash exposure predicts missingness. Keep observed `0 mph` separate from unavailable readings.
+- [x] Audit speed availability by exposed/control status, hop, and event-time bin; test whether crash exposure predicts missingness. Keep observed `0 mph` separate from unavailable readings. `event_study.py` writes `availability.csv`; the test across arms needs the run.
 - [x] Document a stopping rule: do not repeatedly tune matching until placebo effects look small; keep both original and revised specifications. In `docs/experiments.md`.
 
 **Deliverables:** `outputs/identification-runA/` with balance/attrition tables, `hop_effects.csv`, placebo results, missingness diagnostics and 1–2 publication-ready figures.

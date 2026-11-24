@@ -201,7 +201,7 @@ def test_a_contaminated_or_empty_baseline_is_skipped():
     dirty = (~data.clean[:, 0]).nonzero().flatten().tolist()
     assert dirty, "the hand-built crash should dirty road 1"
     frame = pd.DataFrame({"event_id": ["E"], "road": [0], "origin": [dirty[0] + 1]})
-    rows = arm_table(data, frame, edge_index, hops=2)
+    rows, _ = arm_table(data, frame, edge_index, hops=2)
     assert 0 not in set(rows.road), "a crash-depressed baseline must not be differenced from"
     # Road 3 (node 2) has no observation at all, so it cannot supply a baseline.
     assert 2 not in set(rows.road)
@@ -216,8 +216,8 @@ def test_only_the_control_arm_demands_a_clean_post_span(study):
     clean = data.clean.numpy()
     horizon = data.horizon
 
-    crash_arm = arm_table(data, events, edge_index, hops=2)
-    control_arm = arm_table(data, control, edge_index, hops=2, require_clean_post=True)
+    crash_arm, _ = arm_table(data, events, edge_index, hops=2)
+    control_arm, _ = arm_table(data, control, edge_index, hops=2, require_clean_post=True)
 
     def all_post_clean(frame: pd.DataFrame) -> bool:
         return all(

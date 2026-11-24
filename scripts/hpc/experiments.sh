@@ -73,13 +73,16 @@ case "$stage" in
         ;;
     matching)
         task=${SLURM_ARRAY_TASK_ID:?}
-        (( task >= 0 && task < 5 ))
+        (( task >= 0 && task < 6 ))
         if (( task < 3 )); then
             extra=(--random-controls --seed "$((42 + task))")
             name="random-seed$((42 + task))"
-        else
+        elif (( task < 5 )); then
             extra=(--match-hops "$((task - 2))" --seed 42)
             name="matched-hop$((task - 2))"
+        else
+            extra=(--match-target --seed 42)
+            name=matched-target
         fi
         uv run --no-sync python scripts/event_study.py "${window[@]}" "${event[@]}" \
             "${extra[@]}" --out "$run/matching/$name"

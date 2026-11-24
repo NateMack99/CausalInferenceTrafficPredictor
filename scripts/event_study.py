@@ -175,6 +175,7 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
             train, events, control, tables["segments"], segment_ids
         ),
         "neighbour_coverage": neighbour_coverage(train, edge_index, table, hops=args.hops),
+        "availability": pd.DataFrame(did.attrs["availability"]),
     }
     for name, frame in tables_out.items():
         frame.to_csv(args.out / f"{name}.csv", index=False)
