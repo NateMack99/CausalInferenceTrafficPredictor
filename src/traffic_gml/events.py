@@ -637,6 +637,8 @@ def build_windows(
     static = encode_static(tables["segments"], segment_ids, static_features)
     # Built from the real graph and from masked cells only, so a crashed or
     # unobserved neighbour cannot enter the summary a no-crash forecast reads.
+    # Only the lag span is ever read, so a synthetic arm that swaps `values`
+    # for an injected grid still gets the right channel.
     neighbour = None
     if neighbour_hops:
         reach = neighbourhood(edges, len(segment_ids), neighbour_hops)

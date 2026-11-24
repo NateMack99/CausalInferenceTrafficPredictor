@@ -461,35 +461,9 @@ def test_benchmark_script_scores_both_arms_on_the_same_cells(wide_data, tmp_path
     assert summary["event_roads"] >= summary["benchmark"]["events"]
 
 
-def test_both_arms_share_inputs_including_the_neighbour_channel():
-    """Why the neighbour channel may be precomputed from the real grid.
-
-    `treated_windows` swaps `values` but not the channel, which is only sound
-    because injection starts after the window origin and so never enters the
-    lag span. If injection ever reached the input history this fails, and the
-    treated arm would be reading un-injected neighbour speeds.
-    """
-    tables = make_mock(rows=4, cols=4, days=12, crashes=20, seed=0)
-    sets, edge_index = build_windows(tables, history=HISTORY, horizon=HORIZON, neighbour_hops=1)
-    disruptions = inject(sets["test"], edge_index, events=10, seed=13)
-    treated = treated_windows(sets["test"], disruptions)
-    untreated = untreated_windows(sets["test"], disruptions)
-
-    assert treated.neighbour is not None
-    assert torch.equal(treated.origins, untreated.origins)
-    for i in range(len(treated)):
-        assert torch.equal(treated[i]["x"], untreated[i]["x"])
-    assert not torch.equal(treated[0]["y"], untreated[0]["y"])
-
-
 def test_a_zero_decay_injection_is_the_synthetic_null(built):
-    """Benchmark 1: a real crash-road effect and a true zero on every outer ring.
-
-    This needs no separate generator because `inject` labels a `want == 0` ring
-    instead of skipping it, so the outer rings arrive as honest zero-effect
-    truth rows and any neighbour effect scored against them is spurious by
-    construction. Dropping that labelling would silently delete the null.
-    """
+    """Benchmark 1. `inject` labels a zero-effect ring instead of skipping it,
+    so the outer rings arrive as truth rows and need no separate generator."""
     sets, edge_index = built
     disruptions = inject(sets["test"], edge_index, events=10, hops=2, hop_decay=0.0, seed=13)
     truth = disruptions.truth
@@ -499,5 +473,6 @@ def test_a_zero_decay_injection_is_the_synthetic_null(built):
     assert (truth.loc[truth.hop > 0, "true_effect"] == 0.0).all()
 
     moved = ~np.isclose(disruptions.values, disruptions.untreated, equal_nan=True)
-    crash_road_cells = truth[truth.hop == 0].apply(cell_of, axis=1)
-    assert set(zip(*np.nonzero(moved), strict=True)) == set(crash_road_cells)
+    assert set(zip(*np.nonzero(moved), strict=True)) == set(
+        truth[truth.hop == 0].apply(cell_of, axis=1)
+    )

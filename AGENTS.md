@@ -9,6 +9,18 @@ Read `README.md`, `PROJECT_ROADMAP.md`, and the relevant file in `docs/` before 
 - Do not add frameworks, dependencies, or abstraction layers without a concrete need.
 - Reuse the schemas in `docs/architecture.md` and `docs/data.md`.
 
+## Style
+Human readability is the primary constraint. Be aggressively minimalist.
+- Write the minimum code the requirement needs. Prefer deletion over addition.
+- Functional core, imperative shell: keep logic pure, push I/O to the edges.
+- No speculative features, unrequested flexibility, or defensive checks for
+  conditions that cannot occur. Trust internal contracts, validate boundaries.
+- Comment only what the code cannot express.
+- Write the fewest tests that give confidence. Avoid redundant coverage.
+- Do not cut lines with clever syntax or cryptic names.
+- Treat every added line as a maintenance liability. Code must stay small
+  enough for a human to review comfortably without AI.
+
 ## Research rules
 - No post-event inputs for no-accident counterfactual forecasting.
 - Train the no-accident predictor on accident-free target windows.

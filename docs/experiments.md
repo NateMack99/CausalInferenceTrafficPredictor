@@ -59,15 +59,13 @@ Conventions that are not flags:
   still arrive as truth rows. Any neighbour effect recovered against them is
   spurious by construction, which is what Benchmark 1 measures. `FLOOR` is
   0.0 mph, so a zero-effect write cannot clip an observed speed.
-- **The neighbour-mean channel is graph-derived, so an ablation arm must turn it
-  off.** `--neighbour-hops k` appends one input channel holding the mean speed
-  over each road's `k`-hop neighbourhood, built from the **real** graph and from
-  masked cells only, so a crashed or unobserved neighbour never enters it. It is
-  the fair-baseline input the comparison contract asks for: without it `mlp` and
-  `tgru` see only their own road, so a `gcn`-`mlp` gap mixes connectivity with
-  the plain fact that one model can see its neighbours at all. Run ablation arms
-  with `--neighbour-hops 0`; `scripts/experiment.py` warns otherwise. Default is
-  off so the frozen baselines stay reproducible, and **no run has yet used it**.
+- **The neighbour-mean channel is graph-derived, so an ablation arm must turn
+  it off.** `--neighbour-hops k` appends one input channel holding the mean
+  speed over each road's `k`-hop neighbourhood, built from the real graph and
+  from masked cells only. It is the fair-baseline input the contract asks for:
+  without it `mlp` and `tgru` see only their own road, so a `gcn`-`mlp` gap
+  mixes connectivity with one model simply being able to see its neighbours.
+  Default off, and **no run has used it yet**.
 - **A control window's road must be crash-free within the same 2 undirected
   hops**, across its whole lag-and-horizon span, not merely on its own road.
   Control admissibility reads the same `crash_cells` grid that masks training
@@ -368,16 +366,14 @@ are immaterial at this scale, the third is not):
   finer event time or a sensitivity check that shifts the origin back a bin.
 
 - **The corrected estimate weighted control cells, not crashes.**
-  `evaluate.placebo_corrected` averaged every control cell, so a crash that drew
-  five matched controls counted five times against a crash that drew one, and
-  the interval treated those cells as independent. Both now average within a
-  crash first, which is the estimand the contract specifies. The crash arm is
-  unchanged to the bit, because a crash-segment-only estimate already has one
-  cell per crash per bin. On the mock fixture the control arm moves by up to
-  0.085 mph and the effect by up to 0.045 mph, with slightly wider intervals.
-  **Every corrected estimate above predates this fix**, and on the real data the
-  effects are -0.26 to -0.68 mph, so a shift of that size is not negligible
-  relative to them. The output gains an `events` column; `n` still counts cells.
+  `evaluate.placebo_corrected` averaged every control cell, so a crash that
+  drew five matched controls counted five times against one that drew one, and
+  the interval treated those cells as independent. Both arms now average within
+  a crash first. The crash arm is unchanged to the bit; on the mock fixture the
+  control arm moves up to 0.085 mph and the effect up to 0.045 mph. **Every
+  corrected estimate above predates this**, and the real-data effects are -0.26
+  to -0.68 mph, so a shift that size is not negligible against them. The output
+  gains an `events` column; `n` still counts cells.
 
 **What this baseline does not establish:** the controlled gcn–mlp gap is 0.022 mph
 on one seed, so no graph advantage is shown; effects are crash-segment only, so
