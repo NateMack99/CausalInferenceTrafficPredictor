@@ -58,6 +58,10 @@ def test_submit_queues_one_resumable_dependency_graph(tmp_path):
     (binary / "sbatch").chmod(0o755)
 
     root = Path(__file__).resolve().parents[1]
+    # A data directory outside the project: prepare must be told where to read.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "chicago-traffic-segments.json").write_text("{}")
     log = tmp_path / "submissions.json"
     name = f"pytest-{tmp_path.name}"
     command = ["bash", "scripts/hpc/submit.sh", "--name", name]
@@ -67,6 +71,7 @@ def test_submit_queues_one_resumable_dependency_graph(tmp_path):
         SUBMISSION_LOG=str(log),
         MIN_FREE_GB="0",
         GPU_GRES="gpu:test:1",
+        DATA_DIR=str(elsewhere),
     )
     outputs = root / "outputs/hpc" / name
     try:
@@ -81,6 +86,8 @@ def test_submit_queues_one_resumable_dependency_graph(tmp_path):
             for args in calls
         ]
         assert stages[:4] == ["verify", "prepare", "audit", "main"]
+        prepare = next(a for a, s in zip(calls, stages, strict=True) if s == "prepare")
+        assert prepare[-1] == str(elsewhere), "prepare must receive the dataset directory"
         assert {"treatment", "graph-ablation", "aggregate", "finish"} <= set(stages)
 
         for args, stage in zip(calls, stages, strict=True):
@@ -163,3 +170,52 @@ def test_aggregate_reports_missing_stages_instead_of_inventing_them(tmp_path):
     assert json.loads((out / "manifest.json").read_text())["completed_stages"] == [
         "graph-ablation-0"
     ]
+
+
+def dataset(path, kind, files=2, rows=10):
+    path.mkdir(parents=True, exist_ok=True)
+    for i in range(files):
+        (path / f"date=2025-01-0{i + 1}").mkdir(exist_ok=True)
+        (path / f"date=2025-01-0{i + 1}/part.parquet").touch()
+    (path / "_conversion.json").write_text(
+        json.dumps({"kind": kind, "rows": rows, "parquet_files": files})
+    )
+    return path
+
+
+def check(*args):
+    return subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[1] / "scripts/check_dataset.py"),
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_check_dataset_accepts_a_complete_dataset_and_rejects_a_partial_one(tmp_path):
+    """The reuse decision. Directory existence is not enough: a half-copied
+    dataset has a manifest and too few parquet files, and must be refused."""
+    speeds = dataset(tmp_path / "chicago-speeds-history", "speeds", files=3, rows=101_138_608)
+    good = check("--speeds", str(speeds))
+    assert good.returncode == 0
+    assert json.loads(good.stdout)["speeds"]["rows"] == 101_138_608
+
+    (speeds / "date=2025-01-03/part.parquet").unlink()
+    partial = check("--speeds", str(speeds))
+    assert partial.returncode != 0
+    assert "2 parquet files on disk" in partial.stderr
+
+    assert check("--crashes", str(tmp_path / "absent")).returncode != 0
+    assert check("--crashes", str(dataset(tmp_path / "wrong", "speeds"))).returncode != 0
+
+
+def test_check_dataset_records_what_a_run_resolved(tmp_path):
+    crashes = dataset(tmp_path / "chicago-crashes", "crashes", rows=207_612)
+    record = tmp_path / "work/data-provenance.json"
+    assert check("--crashes", str(crashes), "--record", str(record)).returncode == 0
+    saved = json.loads(record.read_text())
+    assert saved["crashes"]["path"] == str(crashes.resolve())
+    assert saved["crashes"]["rows"] == 207_612

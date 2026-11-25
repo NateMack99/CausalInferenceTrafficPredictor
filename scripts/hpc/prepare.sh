@@ -3,34 +3,31 @@
 set -euo pipefail
 : "${SLURM_JOB_ID:?Run inside a CPU allocation}"
 work=$1
-data="$work/data"
+# The datasets are read where they already live. Nothing is copied or linked,
+# and a fetch only writes a dataset that is absent, never over a valid one.
+data=${2:-data}
 graph_dir="$work/graph"
-mkdir -p "$data" "$graph_dir"
-# Carry the frozen road-network files in rather than rebuilding them.
-# OpenStreetMap is live, so a rebuild today yields different node ids than the
-# download Run A used and silently breaks every comparison against it.
-frozen=(
-    chicago-traffic-segments.json
-    chicago_road_network.graphml
-    speed_road_network.graphml
-    speed_roads.parquet
-    speed_segments.parquet
-)
-for file in "${frozen[@]}"; do
-    [[ ! -f "data/$file" ]] || cp -n "data/$file" "$data/"
-done
-if [[ ! -f "$data/chicago_road_network.graphml" ]]; then
-    echo "WARNING: no frozen road network in data/; rebuilding from live OSM." >&2
-    echo "Node ids will differ from Run A. See docs/hpc-run.md step 3." >&2
-fi
-if [[ ! -f "$data/parquet/chicago-speeds-history/_conversion.json" ]]; then
+speeds="$data/parquet/chicago-speeds-history"
+crashes="$data/parquet/chicago-crashes"
+mkdir -p "$work" "$graph_dir"
+
+valid() { uv run --no-sync python scripts/check_dataset.py "$@" >/dev/null 2>&1; }
+
+if ! valid --speeds "$speeds"; then
     uv run --no-sync python scripts/fetch_window.py --data-dir "$data" \
         --window 2024-07-01 2026-04-01 --kinds speeds
 fi
 # Include the preceding day so a boundary crash can still contaminate history.
-if [[ ! -f "$data/parquet/chicago-crashes/_conversion.json" ]]; then
+if ! valid --crashes "$crashes"; then
     uv run --no-sync python scripts/fetch_window.py --data-dir "$data" \
         --window 2024-06-30 2026-04-01 --kinds crashes
+fi
+uv run --no-sync python scripts/check_dataset.py --speeds "$speeds" --crashes "$crashes" \
+    --record "$work/data-provenance.json"
+
+if [[ ! -f "$data/chicago_road_network.graphml" ]]; then
+    echo "WARNING: no frozen road network in $data; rebuilding from live OSM." >&2
+    echo "Node ids will differ from Run A. See docs/hpc-run.md step 3." >&2
 fi
 if [[ ! -f "$data/chicago_road_network.graphml" ]]; then
     if ! uv run --no-sync python scripts/download_street_graph.py --data-dir "$data"; then
@@ -51,10 +48,10 @@ if [[ ${#graphs[@]} -eq 0 ]]; then
 fi
 [[ ${#graphs[@]} -eq 1 ]] || { echo "Expected exactly one segment graph" >&2; exit 1; }
 graph=${graphs[0]}
-crashes="${graph%_segments.graphml}_crash_segments.csv"
-sha256sum "$graph" "$crashes" > "$work/graph.sha256"
+crash_segments="${graph%_segments.graphml}_crash_segments.csv"
+sha256sum "$graph" "$crash_segments" > "$work/graph.sha256"
 uv run --no-sync python scripts/experiment.py --data-only \
-    --speeds "$data/parquet/chicago-speeds-history" --graph "$graph" --crashes "$crashes" \
+    --speeds "$speeds" --graph "$graph" --crashes "$crash_segments" \
     --window 2024-07-01 2026-04-01 --static-features length_m degree betweenness \
     --history 12 --horizon 6 --exposure-hops 2 --stride 1 --controls 5 --seed 42 \
     --processed "$work/processed" --out "$work/audit"
