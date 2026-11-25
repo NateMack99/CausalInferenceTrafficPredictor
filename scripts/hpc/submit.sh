@@ -25,6 +25,8 @@ GPU_MEM=${GPU_MEM:-64G}
 GPU_TIME=${GPU_TIME:-12:00:00}
 CPU_TIME=${CPU_TIME:-04:00:00}
 PREPARE_TIME=${PREPARE_TIME:-12:00:00}
+# Datasets are read from here in place; nothing is copied or linked.
+DATA_DIR=${DATA_DIR:-data}
 
 name=run-$(date -u +%Y%m%dT%H%M%SZ)
 resume=no
@@ -53,8 +55,8 @@ for tool in sbatch squeue sacct; do
     command -v "$tool" >/dev/null || { echo "$tool not found; run this on the cluster" >&2; exit 1; }
 done
 test -f uv.lock || { echo "run from the project root" >&2; exit 1; }
-test -f data/chicago-traffic-segments.json || {
-    echo "data/chicago-traffic-segments.json missing; copy it over first" >&2; exit 1
+test -f "$DATA_DIR/chicago-traffic-segments.json" || {
+    echo "$DATA_DIR/chicago-traffic-segments.json missing; copy it over first" >&2; exit 1
 }
 # Ask Slurm whether it would accept each shape, rather than reimplementing its
 # limits. A rejection mid-submission would leave half a dependency graph queued.
@@ -82,6 +84,19 @@ free_gb=$(df -Pk . | awk 'NR == 2 {print int($4 / 1048576)}')
 mkdir -p "$run/.done" "$logs/meta"
 echo "account=$ACCOUNT  cpu=$CPU_PARTITION  gpu=$GPU_PARTITION/$GPU_GRES"
 echo "gpu time=$GPU_TIME mem=$GPU_MEM  free=${free_gb}G"
+# Report what prepare will reuse, so a surprise download is visible up front.
+for kind in speeds crashes; do
+    case "$kind" in
+        speeds) dataset=$DATA_DIR/parquet/chicago-speeds-history ;;
+        crashes) dataset=$DATA_DIR/parquet/chicago-crashes ;;
+    esac
+    if rows=$(uv run --no-sync python scripts/check_dataset.py --"$kind" "$dataset" 2>/dev/null); then
+        printf '%-8s reuse %s (%s rows)\n' "$kind" "$dataset" \
+            "$(printf '%s' "$rows" | sed -n 's/.*"rows": \([0-9]*\).*/\1/p')"
+    else
+        printf '%-8s will be downloaded into %s\n' "$kind" "$DATA_DIR"
+    fi
+done
 
 manifest=$root/manifest-$(date -u +%Y%m%dT%H%M%SZ).tsv
 printf 'stage\tjob_id\tdependency\tlog\n' > "$manifest"
@@ -101,7 +116,7 @@ submit() {
     [[ -z "$dependencies" ]] || extra+=(--dependency="$dependencies" --kill-on-invalid-dep=yes)
     case "$stage" in
         verify) command=(bash scripts/hpc/verify.sh) ;;
-        prepare) command=(bash scripts/hpc/prepare.sh "$work") ;;
+        prepare) command=(bash scripts/hpc/prepare.sh "$work" "$DATA_DIR") ;;
         smoke) command=(bash scripts/hpc/smoke.sh "$run/smoke") ;;
         finish) command=(bash scripts/hpc/status.sh "$manifest") ;;
         *) command=(bash scripts/hpc/experiments.sh "$stage" "$work" "$run") ;;

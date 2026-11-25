@@ -39,8 +39,9 @@ refuses to queue anything if either is rejected. A wrong partition or an
 over-limit wall time stops the submission before a single job is queued, and
 prints Slurm's own error.
 
-Other knobs, all optional: `GPU_TIME`, `GPU_MEM`, `CPU_MEM`, `CPU_TIME`,
-`PREPARE_TIME`, `GPU_CONCURRENCY` (default 2), `MIN_FREE_GB` (default 200).
+Other knobs, all optional: `DATA_DIR` (default `data`), `GPU_TIME`, `GPU_MEM`,
+`CPU_MEM`, `CPU_TIME`, `PREPARE_TIME`, `GPU_CONCURRENCY` (default 2),
+`MIN_FREE_GB` (default 200).
 
 ## 1. Log in
 
@@ -105,6 +106,38 @@ Optional: a Socrata app token avoids portal rate limits during the download.
 ```bash
 echo 'CHICAGO_DATA_APP_TOKEN=your_token' > data/.env
 ```
+
+## 3b. Datasets you already have
+
+The pipeline reads the converted datasets where they are. Nothing is copied,
+and there is no symlink to set up.
+
+```
+data/parquet/chicago-speeds-history/
+data/parquet/chicago-crashes/
+```
+
+Point `DATA_DIR` elsewhere if yours live somewhere else:
+
+```bash
+export DATA_DIR=/scratch/$USER/traffic-data
+```
+
+Check what will be reused before submitting:
+
+```bash
+uv run python scripts/check_dataset.py \
+    --speeds "${DATA_DIR:-data}/parquet/chicago-speeds-history" \
+    --crashes "${DATA_DIR:-data}/parquet/chicago-crashes"
+```
+
+A dataset counts as reusable only when its `_conversion.json` is present,
+records rows, and its recorded file count matches the parquet files on disk, so
+a half-copied dataset is refused rather than silently half-read. Anything that
+fails is downloaded into `DATA_DIR`; a dataset that passes is never rewritten.
+Preflight prints the same verdict, so a surprise download is visible before any
+job is queued, and `prepare` records what it resolved in
+`outputs/hpc/NAME/work/data-provenance.json`.
 
 ## 4. Smoke test
 

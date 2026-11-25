@@ -62,6 +62,12 @@ SINGLE = (
 )
 
 
+def _datasets(work: Path) -> dict:
+    """What `prepare` resolved and validated, so the paper records its inputs."""
+    record = work / "data-provenance.json"
+    return json.loads(record.read_text()) if record.is_file() else {}
+
+
 def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
@@ -209,6 +215,7 @@ def main() -> None:
                 "generated_utc": pd.Timestamp.now("UTC").isoformat(),
                 "run": str(args.run),
                 "completed_stages": done,
+                "datasets": _datasets(args.work),
                 "ready": int((index.status == "ready").sum()),
                 "missing": sorted(index.loc[index.status == "missing", "source"]),
             },
