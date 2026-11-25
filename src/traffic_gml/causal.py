@@ -191,10 +191,14 @@ def nearest_on_target(crash_arm: pd.DataFrame, control_arm: pd.DataFrame) -> pd.
     # Scaled, or the ~25 mph level would swamp the ~0.1 mph trend.
     level_scale = max(float(crash_arm.baseline.std()), 1e-6)
     trend_scale = max(float(crash_arm.trend.std()), 1e-6)
-    gap["distance"] = (
-        abs(gap.baseline - gap.baseline_crash) / level_scale
-        + abs(gap.trend - gap.trend_crash) / trend_scale
-    )
+    level = abs(gap.baseline - gap.baseline_crash) / level_scale
+    trend = abs(gap.trend - gap.trend_crash) / trend_scale
+    # Same fallback as the draw in `events.event_datasets`: 3% of events have no
+    # pre-event trend of their own, so add like `nansum` and rank a road with
+    # neither statistic last instead of dropping it. Dropping would give this arm
+    # a different sample from the other matching rules, which is the one thing
+    # the comparison between them cannot survive.
+    gap["distance"] = level.add(trend, fill_value=0.0).fillna(np.inf)
     best = gap.loc[gap.groupby(keys).distance.idxmin(), [*keys, "origin"]]
     return control_arm.merge(best, on=[*keys, "origin"])
 

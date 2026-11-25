@@ -369,3 +369,32 @@ def test_effect_duration_counts_only_intervals_below_zero():
     # Hop 1 is still negative at the last step, so its duration is censored.
     assert duration.loc[1, "steps_negative"] == 1
     assert duration.loc[1, "censored"]
+
+
+def test_nearest_on_target_keeps_a_road_with_no_pre_event_statistics():
+    """Run A's matching task 5 died here: a ring road with no observed
+    pre-event speed made every candidate's distance NaN, and `idxmin` raises on
+    an all-NA group. The road has to stay, matched on whatever it does have."""
+    crash = pd.DataFrame(
+        {
+            "event_id": [1, 2, 3],
+            "road": [10, 20, 30],
+            "baseline": [25.0, np.nan, 22.0],
+            "trend": [0.1, np.nan, np.nan],
+        }
+    )
+    control = pd.DataFrame(
+        {
+            "event_id": [1, 1, 2, 2, 3, 3],
+            "road": [10, 10, 20, 20, 30, 30],
+            "origin": [100, 200, 300, 400, 500, 600],
+            "baseline": [24.0, 30.0, 26.0, 31.0, 28.0, 22.5],
+            "trend": [0.2, 0.9, 0.3, 0.8, 0.4, 0.5],
+        }
+    )
+    kept = nearest_on_target(crash, control)
+    assert set(kept.event_id) == {1, 2, 3}, "no event may be dropped for want of a statistic"
+    picked = dict(zip(kept.event_id, kept.origin, strict=True))
+    assert picked[1] == 100, "matched on level and trend"
+    assert picked[3] == 600, "no trend of its own, so matched on level alone"
+    assert picked[2] == 300, "neither statistic: ranked last, first candidate stands"
