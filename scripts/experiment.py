@@ -208,7 +208,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--patience", type=int, default=DEFAULTS["patience"])
     parser.add_argument("--hidden", type=int, default=DEFAULTS["hidden"])
     parser.add_argument("--batch-size", type=int, default=DEFAULTS["batch_size"])
-    parser.add_argument("--controls", type=int, default=1, help="controls per crash")
+    parser.add_argument("--controls", type=int, default=5, help="controls per crash")
     parser.add_argument("--effect-model", default="gcn", choices=MODELS)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(

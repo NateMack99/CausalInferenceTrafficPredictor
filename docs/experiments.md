@@ -5,7 +5,11 @@ convention here and every comparison across runs breaks, so change it deliberate
 
 ## Shared settings
 
-Agreed defaults. A run that departs from them has to say so in its write-up.
+What every reported run uses. `scripts/hpc/experiments.sh` passes these
+explicitly, so no result depends on an argparse default; the defaults match
+the table anyway, so a bare local run is the same configuration.
+`tests/test_config.py` fails if either side drifts. A run that departs from the
+table has to say so in its write-up.
 
 | Setting | Value | Where |
 | --- | --- | --- |
@@ -17,11 +21,13 @@ Agreed defaults. A run that departs from them has to say so in its write-up.
 | Zero speeds | kept (midpoint convention) | `--drop-zero-speed` |
 | Splits | chronological 70/15/15, gap `ceil((L+H)/stride)` windows | `events.build_windows` |
 | Seed | 42 | `--seed` |
-| Static features | `length_m degree betweenness` | `--static-features` |
+| Static features | `length_m degree betweenness` | `--static-features` (defaults to none on purpose, see below) |
 | Neighbour summary | off | `--neighbour-hops` |
 | Graph ablation | `real` | `--graph-ablation` |
 | Ablation seed | follows `--seed` | `--graph-seed` |
 | Optimiser | AdamW, lr 1e-3, weight decay 1e-4 | `train.fit` |
+| Training budget | 20 epochs, early stopping patience 4 | `--epochs`, `--patience` |
+| Capacity | hidden 64, 2 layers, dropout 0.1, batch 64 | `--hidden`, `--layers`, `--batch-size` |
 | Loss | masked L1 on normalised speeds | `--loss mae` |
 | Metrics | masked MAE and RMSE in mph, overall and per horizon step | `evaluate.evaluate` |
 | Controls per crash | 5 requested (about 1.9 available) | `--controls` |
@@ -43,7 +49,11 @@ Conventions that are not flags:
 - **An ablation arm drops the graph-derived static features.** `degree` and
   `betweenness` are not permuted, so under `--graph-ablation permuted` they
   describe a graph the model does not have. Run those arms with
-  `--static-features length_m`; the entry points warn otherwise.
+  `--static-features length_m`; the entry points warn otherwise. This is why
+  `--static-features` is the one setting whose default does not match the
+  table: it defaults to none, so forgetting the flag in an ablation arm
+  cannot silently hand the model graph-derived features the graph no longer
+  supports.
 - **One permutation is not a permutation test.** `--graph-seed` draws another
   without also redrawing the model initialisation or the control windows, which
   `--seed` would. A real-against-permuted gap from a single draw has no noise
