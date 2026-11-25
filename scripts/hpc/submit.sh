@@ -18,6 +18,9 @@ GPU_PARTITION=${GPU_PARTITION:-interactive}
 GPU_GRES=${GPU_GRES:-gpu:rtx_3090:1}
 GPU_CONCURRENCY=${GPU_CONCURRENCY:-2}
 CPU_MEM=${CPU_MEM:-128G}
+# Stages that only read checksums, CSVs and Slurm records. Asking those for the
+# data-sized allocation left them queued behind the whole partition backlog.
+SMALL_MEM=${SMALL_MEM:-8G}
 MIN_FREE_GB=${MIN_FREE_GB:-200}
 GPU_MEM=${GPU_MEM:-64G}
 # interactive caps wall time at 12 hours. A stage killed at the limit leaves no
@@ -104,18 +107,19 @@ printf 'stage\tjob_id\tdependency\tlog\n' > "$manifest"
 submit() {
     local stage=$1 kind=$2 duration=$3 dependencies=$4 array=${5:-}
     local extra=() command=() job partition=$CPU_PARTITION memory=$CPU_MEM
-    if [[ "$kind" == gpu ]]; then
-        partition=$GPU_PARTITION
-        memory=$GPU_MEM
-        extra+=(--gres="$GPU_GRES")
-        # Cap only GPU arrays: that is the scarce resource, and a CPU array of
-        # six short jobs has no reason to run two at a time.
-        [[ -z "$array" ]] || array="$array%$GPU_CONCURRENCY"
-    fi
+    case "$kind" in
+        gpu)
+            partition=$GPU_PARTITION
+            memory=$GPU_MEM
+            extra+=(--gres="$GPU_GRES")
+            # Cap only GPU arrays; that is the scarce resource.
+            [[ -z "$array" ]] || array="$array%$GPU_CONCURRENCY"
+            ;;
+        small) memory=$SMALL_MEM ;;
+    esac
     [[ -z "$array" ]] || extra+=(--array="$array")
     [[ -z "$dependencies" ]] || extra+=(--dependency="$dependencies" --kill-on-invalid-dep=yes)
     case "$stage" in
-        verify) command=(bash scripts/hpc/verify.sh) ;;
         prepare) command=(bash scripts/hpc/prepare.sh "$work" "$DATA_DIR") ;;
         smoke) command=(bash scripts/hpc/smoke.sh "$run/smoke") ;;
         finish) command=(bash scripts/hpc/status.sh "$manifest") ;;
@@ -134,17 +138,16 @@ submit() {
     printf '%s\n' "$job"
 }
 
-verify=$(submit verify cpu 00:30:00 "")
 if [[ "$smoke" == yes ]]; then
-    submit smoke gpu 00:30:00 "afterok:$verify" > /dev/null
+    submit smoke gpu 00:30:00 "" > /dev/null
     cp "$manifest" "$root/manifest-latest.tsv"
     printf '\nSmoke test queued. Status: bash scripts/hpc/status.sh %s\n' \
         "$root/manifest-latest.tsv"
     exit 0
 fi
 
-prepare=$(submit prepare cpu "$PREPARE_TIME" "afterok:$verify")
-audit=$(submit audit cpu 00:15:00 "afterok:$prepare")
+prepare=$(submit prepare cpu "$PREPARE_TIME" "")
+audit=$(submit audit small 00:15:00 "afterok:$prepare")
 
 # Every stage depends only on what it actually needs. `audit` writes the
 # checksum each experiment verifies, so all of them hang off it and the
@@ -162,12 +165,12 @@ zero_event=$(submit event-nozero cpu "$CPU_TIME" "afterok:$audit")
 zero_benchmark=$(submit benchmark-nozero gpu "$GPU_TIME" "afterok:$audit")
 
 # `report` is the only stage that reads other stages' outputs.
-report=$(submit report cpu 00:30:00 "afterok:$main:$event:$benchmark")
+report=$(submit report small 00:30:00 "afterok:$main:$event:$benchmark")
 
 every="$audit:$main:$event:$benchmark:$report:$treatment:$ablation:$matching"
 every="$every:$zero_main:$zero_event:$zero_benchmark:$scenarios:$seeds"
-aggregate=$(submit aggregate cpu 00:30:00 "afterany:$every")
-submit finish cpu 00:15:00 "afterany:$aggregate" > /dev/null
+aggregate=$(submit aggregate small 00:30:00 "afterany:$every")
+submit finish small 00:15:00 "afterany:$aggregate" > /dev/null
 
 cp "$manifest" "$root/manifest-latest.tsv"
 cat <<EOF

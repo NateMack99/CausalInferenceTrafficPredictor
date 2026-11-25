@@ -46,7 +46,8 @@ a low forecast MAE is not.
 ## Layout
 
 - `src/traffic_gml/` — reusable data, graph, model, and evaluation code
-- `scripts/` — command-line entry points for collection, the road graph, the midpoint run, and the semi-synthetic known-effect benchmark (`benchmark.py`)
+- `scripts/` — every entry point, in one place. `setup.sh` and `fetch_*.sh` acquire data; `build_graph.py` builds the road graph; `experiment.py`, `event_study.py` and `benchmark.py` each run one analysis; `aggregate.py` writes the paper tables
+- `scripts/hpc/` — the cluster layer over those same entry points. `submit.sh` is the only command you run: it queues the whole matrix with Slurm dependencies ([runbook](docs/hpc-run.md))
 - `tests/` — small, offline tests
 - `docs/` — architecture, data contracts, and methodology
 - `data/`, `outputs/` — local datasets and generated results; not committed
