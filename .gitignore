@@ -42,3 +42,6 @@ Proposal/**/*.snm
 Proposal/**/*.synctex.gz
 Proposal/**/*.toc
 Proposal/**/*.vrb
+
+# Slurm output from the retired top-level job scripts; runs now log under outputs/hpc/
+logs/

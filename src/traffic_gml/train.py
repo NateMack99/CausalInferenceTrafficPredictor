@@ -130,7 +130,7 @@ def fit(
 
 
 #: Shared with `scripts/experiment.py` so both entry points train the same thing.
-DEFAULTS = {"epochs": 30, "lr": 1e-3, "batch_size": 64, "patience": 5, "hidden": 64}
+DEFAULTS = {"epochs": 20, "lr": 1e-3, "batch_size": 64, "patience": 4, "hidden": 64}
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

@@ -86,7 +86,7 @@ def test_extract_graph_direction_filter_and_publication(tmp_path, fault, buffer_
 
 
 def test_cli_rebuilds_the_street_graph_offline(tmp_path):
-    """scripts/hpc/extract.sh passes these flags; a live query must never be needed."""
+    """Rebuilding from a local extract must never need a live Overpass query."""
     data = tmp_path / "data"
     data.mkdir()
     command = [

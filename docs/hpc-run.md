@@ -40,8 +40,34 @@ over-limit wall time stops the submission before a single job is queued, and
 prints Slurm's own error.
 
 Other knobs, all optional: `DATA_DIR` (default `data`), `GPU_TIME`, `GPU_MEM`,
-`CPU_MEM`, `CPU_TIME`, `PREPARE_TIME`, `GPU_CONCURRENCY` (default 2),
-`MIN_FREE_GB` (default 200).
+`CPU_MEM` (default 128G, for the stages that read the joined tables),
+`SMALL_MEM` (default 8G, for the stages that only read checksums and CSVs),
+`CPU_TIME`, `PREPARE_TIME`, `GPU_CONCURRENCY` (default 2), `MIN_FREE_GB`
+(default 200).
+
+### If the queue wait is long
+
+Two levers, both free. First, the allocation: fair-share differs per account
+and a lower one waits longer. List yours and pick a well-ranked one you are
+authorised to use on this project.
+
+```bash
+allocations           # or: sacctmgr show assoc user=$USER format=Account -nP | sort -u
+export ACCOUNT=your_allocation
+```
+
+Second, the partition. `qlist` shows free cores, the pending backlog and the
+wall-time cap per partition. `standard` carries a large backlog; `interactive`
+is usually near-empty but caps wall time at twelve hours, which every CPU stage
+here fits.
+
+```bash
+qlist
+export CPU_PARTITION=interactive
+```
+
+Preflight will reject this if `PREPARE_TIME` exceeds the cap or the partition
+limits how many jobs you may hold, before anything is queued.
 
 ## 1. Log in
 
@@ -97,9 +123,13 @@ ebd729ace619bbea1d276ffcf7603de993da415e3fad4c208fd0ddd9afe9c696  data/chicago-t
 EOF
 ```
 
-`prepare` copies these into the run directory. If they are absent it rebuilds
-them from live OSM and prints a warning; results from such a run are not
-comparable with Run A.
+`prepare` reads these where they are. If they are absent it rebuilds them from
+live OSM and prints a warning; results from such a run are not comparable with
+Run A, because node ids differ.
+
+These files are gitignored and the boundary polygon they were clipped to was
+never saved, so they cannot be rebuilt identically. The checksums above are the
+record; copy the files, do not regenerate them.
 
 Optional: a Socrata app token avoids portal rate limits during the download.
 
@@ -139,7 +169,19 @@ Preflight prints the same verdict, so a surprise download is visible before any
 job is queued, and `prepare` records what it resolved in
 `outputs/hpc/NAME/work/data-provenance.json`.
 
-## 4. Smoke test
+## 4. Check the code, then smoke-test
+
+Lint and the offline tests run here, on the login node, in under a minute. They
+used to be a queued job, which meant a scheduling wait before the pipeline
+could even start.
+
+```bash
+uv run ruff check . && uv run ruff format --check . && uv run pytest -q
+```
+
+A failure here is a code problem; fix it before submitting.
+
+### Smoke test
 
 Checks the whole pipeline on mock data in a few minutes, including the GPU.
 
@@ -162,7 +204,7 @@ A failure here is a configuration problem. Fix it before step 5.
 bash scripts/hpc/submit.sh --name runA
 ```
 
-That is the whole submission. It runs preflight, then queues 17 jobs with
+That is the whole submission. It runs preflight, then queues 16 jobs with
 Slurm dependencies and prints the manifest path. Nothing else needs submitting.
 
 Preflight refuses to queue anything if the partitions are wrong, the road
@@ -256,21 +298,20 @@ separated from pre-existing differences.
 
 | Stage | Resource | What it produces |
 | --- | --- | --- |
-| `verify` | CPU | lint and the offline test suite |
 | `prepare` | CPU | downloads speeds and crashes, builds the graph, joins the tables |
-| `audit` | CPU | coverage funnel, monthly coverage, input checksums |
+| `audit` | CPU, 8G | coverage funnel, monthly coverage, input checksums |
 | `main` | GPU | seven forecasters and the matched-residual effect |
 | `event` | CPU | matched event study, placebo, availability, attrition |
 | `benchmark` | GPU | Benchmark 0 known-effect recovery |
-| `report` | CPU | first aggregation; fails if a primary stage is missing |
+| `report` | CPU, 8G | first aggregation; fails if a primary stage is missing |
 | `treatment` | GPU x3 | exposure-conditioned MLP and GNN against the residual estimator |
 | `graph-ablation` | GPU x12 | real, self-only and rewired topologies at three seeds |
 | `matching` | CPU x6 | four control-matching rules, including target-road matching |
 | `main-nozero`, `event-nozero`, `benchmark-nozero` | mixed | zero-speed sensitivity |
 | `synthetic-scenarios` | GPU x9 | synthetic null, plateau and congested placement at three seeds |
 | `forecast-seeds` | GPU x8 | seed spread for the headline forecast table |
-| `aggregate` | CPU | paper tables, the ablation figure, the result index |
-| `finish` | CPU | final status summary |
+| `aggregate` | CPU, 8G | paper tables, the ablation figure, the result index |
+| `finish` | CPU, 8G | final status summary |
 
 Every experiment stage depends only on `audit`, which writes the checksum they
 all verify, so the scheduler decides the order and one stage failing never

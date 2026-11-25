@@ -85,13 +85,20 @@ def test_submit_queues_one_resumable_dependency_graph(tmp_path):
             next(a for a in args if a.startswith("--job-name=")).removeprefix("--job-name=traffic-")
             for args in calls
         ]
-        assert stages[:4] == ["verify", "prepare", "audit", "main"]
+        assert stages[:3] == ["prepare", "audit", "main"]
         prepare = next(a for a, s in zip(calls, stages, strict=True) if s == "prepare")
         assert prepare[-1] == str(elsewhere), "prepare must receive the dataset directory"
         assert {"treatment", "graph-ablation", "aggregate", "finish"} <= set(stages)
+        memory = {
+            s: next(a for a in args if a.startswith("--mem="))
+            for args, s in zip(calls, stages, strict=True)
+        }
+        assert memory["prepare"] == "--mem=128G"
+        for stage in ("audit", "report", "aggregate", "finish"):
+            assert memory[stage] == "--mem=8G", stage
 
         for args, stage in zip(calls, stages, strict=True):
-            if stage == "verify":
+            if stage == "prepare":
                 assert not any(a.startswith("--dependency=") for a in args)
                 continue
             dependency = next(a for a in args if a.startswith("--dependency="))
