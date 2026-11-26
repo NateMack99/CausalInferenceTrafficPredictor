@@ -22,7 +22,9 @@ fi
 
 printf '\nPreparation log:\n'
 prep_log=$(awk -F '\t' '$1 == "prepare" {print $4}' "$manifest")
-tail -n 8 "$prep_log" 2>/dev/null || true
+# The manifest keeps sbatch's own `%a`, which Slurm substituted when it opened
+# the file, so the recorded path never exists. Glob over what it wrote instead.
+tail -n 8 ${prep_log//%a/*} 2>/dev/null || true
 
 # Slurm's own states decide this, so no stage count here can go stale.
 states=$(sacct --jobs="$ids" --allocations --noheader --format=State%20 | awk 'NF {print $1}')
@@ -30,7 +32,9 @@ active=$(grep -cE 'RUNNING|PENDING|REQUEUED|SUSPENDED|CONFIGURING' <<<"$states" 
 unfinished=$(grep -cvE 'COMPLETED|RUNNING|PENDING|REQUEUED|SUSPENDED|CONFIGURING' <<<"$states" || true)
 index="$run/paper/result_index.csv"
 printf '\nVerdict: '
-if (( active > 0 )); then
+if [[ -z "$states" ]]; then
+    printf 'Slurm has no record of these jobs yet.\n'
+elif (( active > 0 )); then
     printf '%s job(s) still active. Not finished.\n' "$active"
 elif (( unfinished > 0 )); then
     printf '%s job(s) did not complete. Resubmit with --resume.\n' "$unfinished"
