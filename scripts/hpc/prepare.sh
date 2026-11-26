@@ -50,8 +50,14 @@ fi
 graph=${graphs[0]}
 crash_segments="${graph%_segments.graphml}_crash_segments.csv"
 sha256sum "$graph" "$crash_segments" > "$work/graph.sha256"
-uv run --no-sync python scripts/experiment.py --data-only \
-    --speeds "$speeds" --graph "$graph" --crashes "$crash_segments" \
-    --window 2024-07-01 2026-04-01 --static-features length_m degree betweenness \
-    --history 12 --horizon 6 --exposure-hops 2 --stride 1 --controls 5 --seed 42 \
-    --processed "$work/processed" --out "$work/audit"
+# Guarded like every other step here, because prepare records no completion
+# marker and a resume runs it again. The join refuses to replace existing
+# tables, so an unguarded call failed on every resume and took the stages
+# depending on it down with it.
+if [[ ! -s "$work/audit/audit.json" ]]; then
+    uv run --no-sync python scripts/experiment.py --data-only \
+        --speeds "$speeds" --graph "$graph" --crashes "$crash_segments" \
+        --window 2024-07-01 2026-04-01 --static-features length_m degree betweenness \
+        --history 12 --horizon 6 --exposure-hops 2 --stride 1 --controls 5 --seed 42 \
+        --processed "$work/processed" --out "$work/audit"
+fi
