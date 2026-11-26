@@ -226,3 +226,33 @@ def test_check_dataset_records_what_a_run_resolved(tmp_path):
     saved = json.loads(record.read_text())
     assert saved["crashes"]["path"] == str(crashes.resolve())
     assert saved["crashes"]["rows"] == 207_612
+
+
+def test_prepare_is_safe_to_rerun(tmp_path):
+    """`prepare` records no completion marker, so every --resume runs it again.
+    The join refuses to replace existing tables, which made the second run fail
+    and cancel every stage depending on it."""
+    work, data, binary = tmp_path / "work", tmp_path / "data", tmp_path / "bin"
+    for path in (work / "graph", data, binary, work / "processed"):
+        path.mkdir(parents=True)
+    for name in ("chicago_road_network.graphml", "speed_road_network.graphml"):
+        (data / name).touch()
+    (work / "graph/g_segments.graphml").touch()
+    (work / "graph/g_crash_segments.csv").touch()
+    # Stands in for the real guard in experiment.py, which refuses a used
+    # --processed directory unless --overwrite-processed is passed.
+    (binary / "uv").write_text(
+        f'#!/bin/bash\ncase "$*" in\n  *experiment.py*)\n'
+        f'    if compgen -G "{work}/processed/*.parquet" >/dev/null \\\n'
+        f'       && [[ "$*" != *--overwrite-processed* ]]; then exit 1; fi\n'
+        f'    mkdir -p "{work}/audit"; echo \'{{}}\' > "{work}/audit/audit.json"\n'
+        f'    touch "{work}/processed/speeds.parquet" ;;\nesac\nexit 0\n'
+    )
+    (binary / "uv").chmod(0o755)
+
+    root = Path(__file__).resolve().parents[1]
+    env = dict(os.environ, PATH=f"{binary}:{os.environ['PATH']}", SLURM_JOB_ID="1")
+    command = ["bash", "scripts/hpc/prepare.sh", str(work), str(data)]
+    for attempt in ("first run", "resume"):
+        done = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)
+        assert done.returncode == 0, f"{attempt} failed: {done.stderr}"
