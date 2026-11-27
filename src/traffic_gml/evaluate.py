@@ -388,6 +388,20 @@ def _recovery_row(frame: pd.DataFrame, group: str, value) -> dict:
     }
 
 
+def scored_cells(estimate: pd.DataFrame, truth: pd.DataFrame) -> pd.DataFrame:
+    """The cells an estimator is scored on, one row each, with the truth joined.
+
+    Estimators do not all survive to the same cells: a matched residual needs
+    a control and an exposure head does not. Saving the cells is what lets a
+    later comparison run on the intersection instead of on each estimator's
+    own sample, which no aggregate table can recover.
+    """
+    return estimate.merge(
+        truth[["event_id", "road", "minutes", "hop", "true_effect"]],
+        on=["event_id", "road", "minutes"],
+    )
+
+
 def effect_recovery(estimate: pd.DataFrame, truth: pd.DataFrame) -> pd.DataFrame:
     """Known-effect recovery against injected ground truth.
 
@@ -407,10 +421,7 @@ def effect_recovery(estimate: pd.DataFrame, truth: pd.DataFrame) -> pd.DataFrame
     the other. See `docs/methodology.md` for the arm that must *not* be
     differenced here.
     """
-    joined = estimate.merge(
-        truth[["event_id", "road", "minutes", "hop", "true_effect"]],
-        on=["event_id", "road", "minutes"],
-    )
+    joined = scored_cells(estimate, truth)
     if joined.empty:
         raise ValueError(
             "no estimated cell matches a truth cell; check that event_id, road and "

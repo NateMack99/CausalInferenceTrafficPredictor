@@ -1,0 +1,246 @@
+%%% -*-BibTeX-*-
+%%% Do NOT edit. File created by BibTeX with style
+%%% ACM-Reference-Format-Journals [18-Jan-2012].
+
+\begin{thebibliography}{13}
+
+%%% ====================================================================
+%%% NOTE TO THE USER: you can override these defaults by providing
+%%% customized versions of any of these macros before the \bibliography
+%%% command.  Each of them MUST provide its own final punctuation,
+%%% except for \shownote{} and \showURL{}.  The latter does
+%%% not use final punctuation, in order to avoid confusing it with
+%%% the Web address.
+%%%
+%%% To suppress output of a particular field, define its macro to expand
+%%% to an empty string, or better, \unskip, like this:
+%%%
+%%% \newcommand{\showURL}[1]{\unskip}   % LaTeX syntax
+%%%
+%%% \def \showURL #1{\unskip}           % plain TeX syntax
+%%%
+%%% ====================================================================
+
+\ifx \showCODEN    \undefined \def \showCODEN     #1{\unskip}     \fi
+\ifx \showISBNx    \undefined \def \showISBNx     #1{\unskip}     \fi
+\ifx \showISBNxiii \undefined \def \showISBNxiii  #1{\unskip}     \fi
+\ifx \showISSN     \undefined \def \showISSN      #1{\unskip}     \fi
+\ifx \showLCCN     \undefined \def \showLCCN      #1{\unskip}     \fi
+\ifx \shownote     \undefined \def \shownote      #1{#1}          \fi
+\ifx \showarticletitle \undefined \def \showarticletitle #1{#1}   \fi
+\ifx \showURL      \undefined \def \showURL       {\relax}        \fi
+% The following commands are used for tagged output and should be
+% invisible to TeX
+\providecommand\bibfield[2]{#2}
+\providecommand\bibinfo[2]{#2}
+\providecommand\natexlab[1]{#1}
+\providecommand\showeprint[2][]{arXiv:#2}
+\makeatletter
+\@ifundefined{NAT@parse@date}{}{\let\NAT@parse@date@orig\NAT@parse@date}
+\@ifundefined{NAT@parse@date}{}{\def\NAT@parse@date#1#2#3#4#5#6@@{\NAT@parse@date@orig#1#2#3#4#5#6@@\def\NAT@tempyear{0000}\def\NAT@tempexlab{{?}}\ifx\NAT@year\NAT@tempyear\ifx\NAT@exlab\NAT@tempexlab\def\NAT@date{[n.\,d.]}\else\edef\NAT@date{[n.\,d.]\NAT@exlab}\fi\fi}}
+\makeatother
+
+\bibitem[Cao et~al\mbox{.}(2021)]%
+        {cao2021traffic}
+\bibfield{author}{\bibinfo{person}{Danni Cao}, \bibinfo{person}{Jianjun Wu},
+  \bibinfo{person}{Xianlei Dong}, \bibinfo{person}{Huijun Sun},
+  \bibinfo{person}{Xiaobo Qu}, {and} \bibinfo{person}{Zhenzhen Yang}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Quantification of the Impact of Traffic Incidents
+  on Speed Reduction: A Causal Inference Based Approach}.
+\newblock \bibinfo{journal}{\emph{Accident Analysis \& Prevention}}
+  \bibinfo{volume}{157} (\bibinfo{year}{2021}), \bibinfo{pages}{106163}.
+\newblock
+\href{https://doi.org/10.1016/j.aap.2021.106163}{doi:\nolinkurl{10.1016/j.aap.2021.106163}}
+
+
+\bibitem[{City of Chicago}(2026a)]%
+        {chicagoSpeeds}
+\bibfield{author}{\bibinfo{person}{{City of Chicago}}.}
+  \bibinfo{year}{2026}\natexlab{a}.
+\newblock \bibinfo{title}{Chicago Traffic Tracker --- Historical Congestion
+  Estimates by Segment --- 2024--2026}.
+\newblock \bibinfo{howpublished}{Chicago Data Portal}.
+\newblock
+\urldef\tempurl%
+\url{https://data.cityofchicago.org/d/4g9f-3jbs}
+\showURL{%
+\tempurl}
+\newblock
+\shownote{Traffic estimates for arterial road segments; accessed October 2026}.
+
+
+\bibitem[{City of Chicago}(2026b)]%
+        {chicagoCrashes}
+\bibfield{author}{\bibinfo{person}{{City of Chicago}}.}
+  \bibinfo{year}{2026}\natexlab{b}.
+\newblock \bibinfo{title}{Traffic Crashes --- Crashes}.
+\newblock \bibinfo{howpublished}{Chicago Data Portal}.
+\newblock
+\urldef\tempurl%
+\url{https://data.cityofchicago.org/d/85ca-t3if}
+\showURL{%
+\tempurl}
+\newblock
+\shownote{Accessed October 2026}.
+
+
+\bibitem[Forastiere et~al\mbox{.}(2022)]%
+        {forastiere2022interference}
+\bibfield{author}{\bibinfo{person}{Laura Forastiere}, \bibinfo{person}{Fabrizia
+  Mealli}, \bibinfo{person}{Albert Wu}, {and} \bibinfo{person}{Edoardo~M.
+  Airoldi}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Estimating Causal Effects under Network
+  Interference with Bayesian Generalized Propensity Scores}.
+\newblock \bibinfo{journal}{\emph{Journal of Machine Learning Research}}
+  \bibinfo{volume}{23}, \bibinfo{number}{289} (\bibinfo{year}{2022}),
+  \bibinfo{pages}{1--61}.
+\newblock
+\urldef\tempurl%
+\url{https://www.jmlr.org/papers/v23/18-711.html}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Guo et~al\mbox{.}(2020)]%
+        {guo2020network}
+\bibfield{author}{\bibinfo{person}{Ruocheng Guo}, \bibinfo{person}{Jundong Li},
+  {and} \bibinfo{person}{Huan Liu}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Learning Individual Causal Effects from Networked
+  Observational Data}. In \bibinfo{booktitle}{\emph{Proceedings of the 13th ACM
+  International Conference on Web Search and Data Mining}}.
+  \bibinfo{publisher}{ACM}, \bibinfo{pages}{232--240}.
+\newblock
+\href{https://doi.org/10.1145/3336191.3371816}{doi:\nolinkurl{10.1145/3336191.3371816}}
+
+
+\bibitem[Hamilton et~al\mbox{.}(2017)]%
+        {hamilton2017graphsage}
+\bibfield{author}{\bibinfo{person}{William~L. Hamilton}, \bibinfo{person}{Rex
+  Ying}, {and} \bibinfo{person}{Jure Leskovec}.}
+  \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{Inductive Representation Learning on Large Graphs}.
+  In \bibinfo{booktitle}{\emph{Advances in Neural Information Processing
+  Systems}}, Vol.~\bibinfo{volume}{30}.
+\newblock
+\urldef\tempurl%
+\url{https://proceedings.neurips.cc/paper/2017/hash/5dd9db5e033da9c6fb5ba83c7a7ebea9-Abstract.html}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Huber et~al\mbox{.}(2026)]%
+        {huber2026exposure}
+\bibfield{author}{\bibinfo{person}{Martin Huber}, \bibinfo{person}{Jannis
+  Kueck}, {and} \bibinfo{person}{Mara Mattes}.}
+  \bibinfo{year}{2026}\natexlab{}.
+\newblock \showarticletitle{Learning and Testing Exposure Mappings of
+  Interference using Graph Convolutional Autoencoders}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the Fifth Conference on Causal
+  Learning and Reasoning}} \emph{(\bibinfo{series}{Proceedings of Machine
+  Learning Research}, Vol.~\bibinfo{volume}{323})}. \bibinfo{publisher}{PMLR},
+  \bibinfo{pages}{656--675}.
+\newblock
+\urldef\tempurl%
+\url{https://proceedings.mlr.press/v323/huber26a.html}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Kipf and Welling(2017)]%
+        {kipf2017gcn}
+\bibfield{author}{\bibinfo{person}{Thomas~N. Kipf} {and} \bibinfo{person}{Max
+  Welling}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{Semi-Supervised Classification with Graph
+  Convolutional Networks}. In \bibinfo{booktitle}{\emph{International
+  Conference on Learning Representations}}.
+\newblock
+\urldef\tempurl%
+\url{https://arxiv.org/abs/1609.02907}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Kitahara et~al\mbox{.}(2026)]%
+        {kitahara2026castanet}
+\bibfield{author}{\bibinfo{person}{Toshiya Kitahara}, \bibinfo{person}{Ryu
+  Shirakami}, \bibinfo{person}{Koh Takeuchi}, {and} \bibinfo{person}{Hisashi
+  Kashima}.} \bibinfo{year}{2026}\natexlab{}.
+\newblock \bibinfo{title}{{CASTANET}: Causality-Aware Spatio-Temporal
+  Adversarial Network Using Traffic Incident Effects}.
+\newblock
+\showeprint[arxiv]{2608.27942}
+\urldef\tempurl%
+\url{https://arxiv.org/abs/2608.27942}
+\showURL{%
+\tempurl}
+\newblock
+\shownote{Preprint}.
+
+
+\bibitem[Li et~al\mbox{.}(2024)]%
+        {li2024crash}
+\bibfield{author}{\bibinfo{person}{Shuang Li}, \bibinfo{person}{Ziyuan Pu},
+  \bibinfo{person}{Zhiyong Cui}, \bibinfo{person}{Seunghyeon Lee},
+  \bibinfo{person}{Xiucheng Guo}, {and} \bibinfo{person}{Dong Ngoduy}.}
+  \bibinfo{year}{2024}\natexlab{}.
+\newblock \showarticletitle{Inferring Heterogeneous Treatment Effects of
+  Crashes on Highway Traffic: A Doubly Robust Causal Machine Learning
+  Approach}.
+\newblock \bibinfo{journal}{\emph{Transportation Research Part C: Emerging
+  Technologies}}  \bibinfo{volume}{160} (\bibinfo{year}{2024}),
+  \bibinfo{pages}{104537}.
+\newblock
+\href{https://doi.org/10.1016/j.trc.2024.104537}{doi:\nolinkurl{10.1016/j.trc.2024.104537}}
+
+
+\bibitem[Li et~al\mbox{.}(2018)]%
+        {li2018dcrnn}
+\bibfield{author}{\bibinfo{person}{Yaguang Li}, \bibinfo{person}{Rose Yu},
+  \bibinfo{person}{Cyrus Shahabi}, {and} \bibinfo{person}{Yan Liu}.}
+  \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Diffusion Convolutional Recurrent Neural Network:
+  Data-Driven Traffic Forecasting}. In \bibinfo{booktitle}{\emph{International
+  Conference on Learning Representations}}.
+\newblock
+\urldef\tempurl%
+\url{https://arxiv.org/abs/1707.01926}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Liu et~al\mbox{.}(2026)]%
+        {li2024msct}
+\bibfield{author}{\bibinfo{person}{Yansheng Liu}, \bibinfo{person}{Shuang Li},
+  \bibinfo{person}{Weiqi Li}, \bibinfo{person}{Duxin Chen}, \bibinfo{person}{Lu
+  Dong}, \bibinfo{person}{Nan Zhang}, \bibinfo{person}{Daniel~J. Graham},
+  \bibinfo{person}{Pan Liu}, {and} \bibinfo{person}{Ziyuan Pu}.}
+  \bibinfo{year}{2026}\natexlab{}.
+\newblock \showarticletitle{{MSCT}: Addressing Time-Varying Confounding Bias
+  With Marginal Structural Causal Transformer for Counterfactual Post-Crash
+  Traffic Prediction}.
+\newblock \bibinfo{journal}{\emph{IEEE Transactions on Intelligent
+  Transportation Systems}} \bibinfo{volume}{27}, \bibinfo{number}{9}
+  (\bibinfo{year}{2026}), \bibinfo{pages}{11726--11741}.
+\newblock
+\href{https://doi.org/10.1109/TITS.2026.3690629}{doi:\nolinkurl{10.1109/TITS.2026.3690629}}
+
+
+\bibitem[Ma and Tresp(2021)]%
+        {ma2021interference}
+\bibfield{author}{\bibinfo{person}{Yunpu Ma} {and} \bibinfo{person}{Volker
+  Tresp}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Causal Inference under Networked Interference and
+  Intervention Policy Enhancement}. In \bibinfo{booktitle}{\emph{Proceedings of
+  the 24th International Conference on Artificial Intelligence and Statistics}}
+  \emph{(\bibinfo{series}{Proceedings of Machine Learning Research},
+  Vol.~\bibinfo{volume}{130})}. \bibinfo{publisher}{PMLR},
+  \bibinfo{pages}{3700--3708}.
+\newblock
+\urldef\tempurl%
+\url{https://proceedings.mlr.press/v130/ma21c.html}
+\showURL{%
+\tempurl}
+
+
+\end{thebibliography}

@@ -157,6 +157,7 @@ event=$(submit event cpu "$CPU_TIME" "afterok:$audit")
 benchmark=$(submit benchmark gpu "$GPU_TIME" "afterok:$audit")
 treatment=$(submit treatment gpu "$GPU_TIME" "afterok:$audit" '0-2')
 ablation=$(submit graph-ablation gpu "$GPU_TIME" "afterok:$audit" '0-11')
+spread=$(submit topology-spread gpu "$GPU_TIME" "afterok:$audit" '0-29')
 matching=$(submit matching cpu "$CPU_TIME" "afterok:$audit" '0-5')
 scenarios=$(submit synthetic-scenarios gpu "$GPU_TIME" "afterok:$audit" '0-8')
 seeds=$(submit forecast-seeds gpu "$GPU_TIME" "afterok:$audit" '0-7')
@@ -167,7 +168,7 @@ zero_benchmark=$(submit benchmark-nozero gpu "$GPU_TIME" "afterok:$audit")
 # `report` is the only stage that reads other stages' outputs.
 report=$(submit report small 00:30:00 "afterok:$main:$event:$benchmark")
 
-every="$audit:$main:$event:$benchmark:$report:$treatment:$ablation:$matching"
+every="$audit:$main:$event:$benchmark:$report:$treatment:$ablation:$matching:$spread"
 every="$every:$zero_main:$zero_event:$zero_benchmark:$scenarios:$seeds"
 aggregate=$(submit aggregate small 00:30:00 "afterany:$every")
 submit finish small 00:15:00 "afterany:$aggregate" > /dev/null

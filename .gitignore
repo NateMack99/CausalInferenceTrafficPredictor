@@ -45,3 +45,10 @@ Proposal/**/*.vrb
 
 # Slurm output from the retired top-level job scripts; runs now log under outputs/hpc/
 logs/
+
+# macOS
+.DS_Store
+
+# Paper build output and raster previews; the PDFs and make_figures.py are tracked
+research_artifacts/paper/main.pdf
+research_artifacts/paper/figures/*.png

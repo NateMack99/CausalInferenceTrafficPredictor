@@ -59,7 +59,17 @@ SINGLE = (
         "run",
         "event-nozero/effect_by_hop.csv",
     ),
+    ("tab:diagnostics", "zero-speed sensitivity, forecast", "run", "main-nozero/results.csv"),
+    (
+        "tab:diagnostics",
+        "zero-speed sensitivity, known-effect recovery",
+        "run",
+        "benchmark-nozero/effect_recovery.csv",
+    ),
 )
+
+#: `synthetic-scenarios` directory prefix -> the scenario the manuscript names.
+SCENARIOS = {"null": "B1 direct-only", "plateau": "B2 plateau", "congested": "B3 congested"}
 
 
 def _datasets(work: Path) -> dict:
@@ -118,6 +128,127 @@ def treatment_table(run: Path) -> pd.DataFrame:
                     "effect_mae": float(hit.effect_mae.iloc[0]) if len(hit) else None,
                 }
             )
+    frame = pd.DataFrame(rows)
+    return frame.sort_values(["model", "seed"], ignore_index=True) if len(frame) else frame
+
+
+def spread_table(run: Path) -> pd.DataFrame:
+    """One row per relabelling, kept apart from `graph_ablation.csv`.
+
+    Its `real` baseline is that table's real arm at the same training seed,
+    because `real` ignores the relabelling seed. Folding these rows into the
+    ablation table instead would redefine what its `permuted` group means.
+    """
+    rows = []
+    for arm in sorted((run / "topology-spread").glob("*/summary.json")):
+        settings = json.loads(arm.read_text())["args"]
+        recovery = pd.read_csv(arm.parent / "effect_recovery.csv")
+        pooled = recovery.loc[(recovery.estimator == "corrected") & (recovery.group == "pooled")]
+        forecast = pd.read_csv(arm.parent / "forecast.csv")
+        for model in forecast.model:
+            hit = pooled.loc[pooled.model == model]
+            rows.append(
+                {
+                    "model": model,
+                    "graph_seed": int(settings["graph_seed"]),
+                    "seed": int(settings["seed"]),
+                    "forecast_mae": float(forecast.loc[forecast.model == model, "mae"].iloc[0]),
+                    "effect_mae": float(hit.effect_mae.iloc[0]) if len(hit) else None,
+                    "effect_bias": float(hit.bias_mph.iloc[0]) if len(hit) else None,
+                }
+            )
+    frame = pd.DataFrame(rows)
+    if not len(frame):
+        return frame
+    return frame.sort_values(["model", "seed", "graph_seed"], ignore_index=True)
+
+
+def _zero_mae(arm: Path) -> dict[tuple[str, str], float]:
+    """MAE of predicting no effect at all, on the cells the arm scored.
+
+    The injected signal averages about 1.5 mph against a forecast noise floor
+    near 3 mph, so an estimator that shrinks every prediction to zero scores
+    well on absolute error while recovering nothing. Without this column a
+    reader cannot tell those two cases apart, and the exposure heads sit much
+    closer to it than to the truth.
+    """
+    truth = pd.read_csv(arm / "truth.csv")
+    error = truth["true_effect"].abs()
+    rows = {("pooled", "all"): float(error.mean())}
+    for group, keys in (("hop", truth["hop"]), ("minutes", truth["minutes"])):
+        rows.update({(group, str(k)): float(v) for k, v in error.groupby(keys).mean().items()})
+    return rows
+
+
+def scenario_table(run: Path) -> pd.DataFrame:
+    """Known-effect recovery across all four injected scenarios in one table.
+
+    B1 is the one that cannot be read off B0: its outer rings carry a true
+    zero, so any neighbour estimate there is the estimator inventing spillover.
+    """
+    arms = [("B0 decay", run / "benchmark-seed42")]
+    arms += [
+        (SCENARIOS[arm.name.split("-seed")[0]], arm)
+        for arm in sorted((run / "synthetic-scenarios").glob("*-seed*"))
+        if arm.name.split("-seed")[0] in SCENARIOS
+    ]
+    frames = []
+    for scenario, arm in arms:
+        if not (arm / "effect_recovery.csv").is_file():
+            continue
+        frame = pd.read_csv(arm / "effect_recovery.csv")
+        frame.insert(0, "scenario", scenario)
+        frame.insert(1, "seed", int(json.loads((arm / "summary.json").read_text())["args"]["seed"]))
+        zero = _zero_mae(arm) if (arm / "truth.csv").is_file() else {}
+        frame["zero_mae"] = [
+            round(zero[(g, str(v))], 3) if (g, str(v)) in zero else None
+            for g, v in zip(frame["group"], frame["value"], strict=True)
+        ]
+        frames.append(frame)
+    if not frames:
+        return pd.DataFrame()
+    table = pd.concat(frames, ignore_index=True)
+    return table.sort_values(["scenario", "seed", "model", "estimator"], ignore_index=True)
+
+
+def matching_table(run: Path) -> pd.DataFrame:
+    """Every control-drawing rule on one table, the reported rule first.
+
+    The reported estimate is one of six admissible rules. Collected together,
+    the spread across rules is the honest uncertainty on the matching design,
+    and it is not inside any single arm's interval.
+    """
+    arms = [("matched pre-event, 0 hops (reported)", run / "event")]
+    arms += [(arm.name, arm) for arm in sorted((run / "matching").glob("*")) if arm.is_dir()]
+    frames = []
+    for rule, arm in arms:
+        if not (arm / "effect_by_hop.csv").is_file():
+            continue
+        frame = pd.read_csv(arm / "effect_by_hop.csv")
+        frame.insert(0, "rule", rule)
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def seed_table(run: Path) -> pd.DataFrame:
+    """Held-out forecast error per architecture and training seed.
+
+    Topology differences are reported as paired within-seed contrasts, so this
+    is what says whether those contrasts are larger than ordinary seed noise.
+    """
+    rows = []
+    for record in sorted((run / "forecast-seeds").glob("*-seed*/metrics.json")):
+        model, seed = record.parent.name.rsplit("-seed", 1)
+        splits = json.loads(record.read_text())["splits"]
+        rows.append(
+            {
+                "model": model,
+                "seed": int(seed),
+                "test_mae": round(float(splits["test"]["mae"]), 4),
+                "test_rmse": round(float(splits["test"]["rmse"]), 4),
+                "val_mae": round(float(splits["val"]["mae"]), 4),
+            }
+        )
     frame = pd.DataFrame(rows)
     return frame.sort_values(["model", "seed"], ignore_index=True) if len(frame) else frame
 
@@ -184,6 +315,10 @@ def main() -> None:
     for name, builder, label, description in (
         ("graph_ablation.csv", ablation_table, "tab:causalmodels", "real/self-only/rewired arms"),
         ("treatment.csv", treatment_table, "tab:causalmodels", "exposure-conditioned arms"),
+        ("scenarios.csv", scenario_table, "tab:synthetic", "B0-B3 recovery beside the zero null"),
+        ("matching.csv", matching_table, "tab:diagnostics", "all six control-drawing rules"),
+        ("forecast_seeds.csv", seed_table, "tab:forecast", "forecast error by training seed"),
+        ("topology_spread.csv", spread_table, "fig:topology", "ten independent relabellings"),
     ):
         frame = builder(args.run)
         target = args.out / name
