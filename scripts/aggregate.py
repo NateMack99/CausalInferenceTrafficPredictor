@@ -59,12 +59,17 @@ SINGLE = (
         "run",
         "event-nozero/effect_by_hop.csv",
     ),
-    ("tab:diagnostics", "zero-speed sensitivity, forecast", "run", "main-nozero/results.csv"),
+    (
+        "tab:diagnostics",
+        "zero-speed sensitivity, forecast",
+        "run",
+        "main-nozero-seed42/results.csv",
+    ),
     (
         "tab:diagnostics",
         "zero-speed sensitivity, known-effect recovery",
         "run",
-        "benchmark-nozero/effect_recovery.csv",
+        "benchmark-nozero-seed42/effect_recovery.csv",
     ),
 )
 
