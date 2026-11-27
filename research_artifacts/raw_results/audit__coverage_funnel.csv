@@ -1,0 +1,8 @@
+stage,crashes,retained_pct,step_pct
+crashes in the study period,192338,100.0,100.0
+with usable coordinates,190283,98.9,98.9
+matched to a monitored segment,40916,21.3,21.5
+"on a segment with speed data, window fits",40848,21.2,99.8
+crash-free history and a held-out control (analysis sample),30118,15.7,73.7
+"of those, every pre and post bin observed",4861,2.5,16.1
+and a connected road observed too,4856,2.5,99.9

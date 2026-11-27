@@ -1,0 +1,16 @@
+manuscript,description,source,status,rows,sha256
+tab:funnel,crash-to-road selection funnel,outputs/hpc/runA/work/audit/coverage_funnel.csv,ready,7,e1067fcaa8a1f1f9
+tab:funnel,monthly coverage and control supply,outputs/hpc/runA/work/audit/monthly_coverage.csv,ready,21,39f2f51fd18a4d9b
+tab:forecast,seven-model held-out forecast error,outputs/hpc/runA/run/main-seed42/results.csv,ready,7,cd487526920415c2
+fig:eventcurves,"0/1/2-hop effects, available case",outputs/hpc/runA/run/event/effect_by_hop.csv,ready,18,82f77246460fd25c
+fig:eventcurves,fixed-event cohort,outputs/hpc/runA/run/event/effect_fixed_cohort.csv,ready,18,799b93f8f8904ed4
+tab:diagnostics,effect beside the pre-trend placebo,outputs/hpc/runA/run/event/effect_against_placebo.csv,ready,9,b916aad8f8b8302f
+tab:diagnostics,pre-event covariate balance,outputs/hpc/runA/run/event/covariate_balance.csv,ready,5,d3acc57f8e803d8d
+tab:diagnostics,"speed availability by arm, hop and step",outputs/hpc/runA/run/event/availability.csv,ready,36,e3d257a9b5668590
+tab:diagnostics,cells dropped for want of a control,outputs/hpc/runA/run/event/attrition.csv,ready,3,7748a87a50b846d0
+tab:diagnostics,how long each ring stays detectably negative,outputs/hpc/runA/run/event/effect_duration.csv,ready,3,d6578c34d7333c37
+tab:diagnostics,effect excluding overlapping crashes,outputs/hpc/runA/run/event/effect_excluding_overlaps.csv,ready,18,72c1cb28cc1d2ba4
+tab:synthetic,"known-effect recovery, Benchmark 0",outputs/hpc/runA/run/benchmark-seed42/effect_recovery.csv,ready,160,2fcad29045af9430
+tab:diagnostics,"zero-speed sensitivity, event study",outputs/hpc/runA/run/event-nozero/effect_by_hop.csv,ready,18,9560b122105a4fb4
+tab:causalmodels,real/self-only/rewired arms,outputs/hpc/runA/run/paper/graph_ablation.csv,ready,12,9c43e7eba7521967
+tab:causalmodels,exposure-conditioned arms,outputs/hpc/runA/run/paper/treatment.csv,ready,9,a7c80560d339fc78

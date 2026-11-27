@@ -30,7 +30,7 @@ table has to say so in its write-up.
 | Capacity | hidden 64, 2 layers, dropout 0.1, batch 64 | `--hidden`, `--layers`, `--batch-size` |
 | Loss | masked L1 on normalised speeds | `--loss mae` |
 | Metrics | masked MAE and RMSE in mph, overall and per horizon step | `evaluate.evaluate` |
-| Controls per crash | 5 requested (about 1.9 available) | `--controls` |
+| Controls per crash | 5 requested, 4.96 drawn on the frozen data | `--controls` |
 | Effect model | `gcn` | `--effect-model` |
 | Benchmark events | 200 | `benchmark.py --events` |
 | Benchmark controls | 5 per event road | `benchmark.py --controls` |

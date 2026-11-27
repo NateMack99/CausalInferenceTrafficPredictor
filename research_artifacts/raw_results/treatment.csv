@@ -1,0 +1,10 @@
+model,estimator,seed,forecast_mae,effect_mae
+gcn,corrected,42,3.0693072380914375,3.211
+gcn,corrected,43,3.072090779198795,3.196
+gcn,corrected,44,3.0719412469325658,3.171
+treatment_gcn,exposure-head,42,3.0755403290417096,1.312
+treatment_gcn,exposure-head,43,3.068654335303769,1.374
+treatment_gcn,exposure-head,44,3.072085112169166,1.276
+treatment_mlp,exposure-head,42,3.089675147337605,1.344
+treatment_mlp,exposure-head,43,3.091613613694255,1.349
+treatment_mlp,exposure-head,44,3.092111517019103,1.346

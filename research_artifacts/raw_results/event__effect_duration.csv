@@ -1,0 +1,4 @@
+hop,steps_negative,last_negative_minutes,censored
+0,6,60,True
+1,6,60,True
+2,3,40,False
