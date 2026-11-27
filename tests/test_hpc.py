@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -88,7 +89,9 @@ def test_submit_queues_one_resumable_dependency_graph(tmp_path):
         assert stages[:3] == ["prepare", "audit", "main"]
         prepare = next(a for a, s in zip(calls, stages, strict=True) if s == "prepare")
         assert prepare[-1] == str(elsewhere), "prepare must receive the dataset directory"
-        assert {"treatment", "graph-ablation", "aggregate", "finish"} <= set(stages)
+        assert {"treatment", "graph-ablation", "topology-spread", "aggregate", "finish"} <= set(
+            stages
+        )
         memory = {
             s: next(a for a in args if a.startswith("--mem="))
             for args, s in zip(calls, stages, strict=True)
@@ -256,3 +259,86 @@ def test_prepare_is_safe_to_rerun(tmp_path):
     for attempt in ("first run", "resume"):
         done = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)
         assert done.returncode == 0, f"{attempt} failed: {done.stderr}"
+
+
+def test_aggregate_collects_the_scenario_arms_and_scores_the_zero_null(tmp_path):
+    """B1-B3, the matching rules and the seed sweep all ran in Run A but were
+    never collected, and the zero null is what tells a shrunken estimator from
+    a working one."""
+    run, work = tmp_path / "run", tmp_path / "work"
+    arm = run / "synthetic-scenarios/null-seed42"
+    arm.mkdir(parents=True)
+    (arm / "summary.json").write_text(json.dumps({"args": {"seed": "42"}}))
+    (arm / "effect_recovery.csv").write_text(
+        "model,estimator,group,value,n,events,true_mph,estimated_mph,bias_mph,effect_mae\n"
+        "gcn,corrected,pooled,all,4,2,-2.0,-1.5,0.5,1.0\n"
+        "gcn,corrected,hop,0,2,2,-4.0,-3.0,1.0,1.5\n"
+        "gcn,corrected,hop,1,2,2,0.0,-0.4,-0.4,0.4\n"
+    )
+    # hop 0 carries the effect, hop 1 is B1's true zero.
+    (arm / "truth.csv").write_text(
+        "event_id,road,hop,minutes,true_effect\n"
+        "1,0,0,10,-3.0\n1,1,0,10,-5.0\n1,2,1,10,0.0\n1,3,1,10,0.0\n"
+    )
+    event = run / "event"
+    event.mkdir(parents=True)
+    (event / "effect_by_hop.csv").write_text("hop,minutes,effect\n1,30,-0.111\n")
+    rule = run / "matching/random-seed42"
+    rule.mkdir(parents=True)
+    (rule / "effect_by_hop.csv").write_text("hop,minutes,effect\n1,30,-0.2\n")
+    seeded = run / "forecast-seeds/gcn-seed43"
+    seeded.mkdir(parents=True)
+    (seeded / "metrics.json").write_text(
+        json.dumps({"splits": {"test": {"mae": 3.1, "rmse": 4.2}, "val": {"mae": 3.0}}})
+    )
+
+    out = tmp_path / "paper"
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[1] / "scripts/aggregate.py"),
+            "--run",
+            str(run),
+            "--work",
+            str(work),
+            "--out",
+            str(out),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    scenarios = pd.read_csv(out / "scenarios.csv")
+    assert set(scenarios.scenario) == {"B1 direct-only"}
+    pooled = scenarios.loc[scenarios.group == "pooled"].iloc[0]
+    assert pooled.zero_mae == 2.0  # mean |-3, -5, 0, 0|
+    rings = scenarios.loc[scenarios.group == "hop"].set_index("value")
+    assert rings.loc["0", "zero_mae"] == 4.0
+    # The true zero ring: nothing to recover, so any estimate is pure invention
+    # and the null is unbeatable.
+    assert rings.loc["1", "zero_mae"] == 0.0
+
+    assert set(pd.read_csv(out / "matching.csv").rule) == {
+        "matched pre-event, 0 hops (reported)",
+        "random-seed42",
+    }
+    assert pd.read_csv(out / "forecast_seeds.csv").to_dict("records") == [
+        {"model": "gcn", "seed": 43, "test_mae": 3.1, "test_rmse": 4.2, "val_mae": 3.0}
+    ]
+
+
+def test_topology_spread_covers_ten_relabellings_at_three_seeds():
+    """One relabelling cannot characterise wrong topologies. The arm arithmetic
+    has to span both axes without repeating a pair."""
+    script = Path(__file__).resolve().parents[1] / "scripts/hpc/experiments.sh"
+    body = re.search(r"    topology-spread\)(.*?)\n        ;;", script.read_text(), re.S).group(1)
+    arms = {
+        (42 + task // 10, 100 + task % 10)
+        for task in range(int(re.search(r"task < (\d+)", body).group(1)))
+    }
+    assert len(arms) == 30
+    assert {seed for seed, _ in arms} == {42, 43, 44}
+    assert {graph for _, graph in arms} == set(range(100, 110))
+    # graph seed 42 is the graph-ablation arm; these must all be new draws.
+    assert 42 not in {graph for _, graph in arms}
