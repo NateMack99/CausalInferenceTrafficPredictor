@@ -36,6 +36,7 @@ from traffic_gml.evaluate import (
     effects,
     evaluate,
     exposure_effects,
+    scored_cells,
 )
 from traffic_gml.events import (
     ABLATIONS,
@@ -197,7 +198,7 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         f"{per_road:.2f} controls per event road over {event_roads:,} roads"
     )
 
-    recovery, forecast = [], {}
+    recovery, forecast, cells = [], {}, []
     for name in args.models:
         # Re-seed per model, as `scripts/experiment.py` does. Seeding once would
         # leave each model's initialisation and shuffling dependent on what ran
@@ -226,6 +227,11 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
             estimate = contrast.merge(identity, on="origin").rename(columns={"effect": "estimated"})
             scores = {"exposure-head": effect_recovery(estimate, disruptions.truth)}
             recovery.append(scores["exposure-head"].assign(model=name, estimator="exposure-head"))
+            cells.append(
+                scored_cells(estimate, disruptions.truth).assign(
+                    model=name, estimator="exposure-head"
+                )
+            )
             pooled = scores["exposure-head"].query("group == 'pooled'").iloc[0]
             hops = scores["exposure-head"].query("group == 'hop'").sort_values("value")
             by_hop = "  ".join(f"h{int(r.value)} {r.effect_mae:5.3f}" for r in hops.itertuples())
@@ -255,6 +261,9 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         for estimator, frame in scored.items():
             scores[estimator] = effect_recovery(frame, disruptions.truth)
             recovery.append(scores[estimator].assign(model=name, estimator=estimator))
+            cells.append(
+                scored_cells(frame, disruptions.truth).assign(model=name, estimator=estimator)
+            )
 
         pooled = scores["corrected"].query("group == 'pooled'").iloc[0]
         hops = scores["corrected"].query("group == 'hop'").sort_values("value")
@@ -270,6 +279,12 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
     columns = ["model", "estimator", "group", "value"]
     recovery = recovery[columns + [c for c in recovery.columns if c not in columns]]
     recovery.to_csv(args.out / "effect_recovery.csv", index=False)
+    # Per cell, so MAE and bias can later be recomputed on the intersection of
+    # the estimators' samples under one weighting. The aggregate rows above
+    # cannot be re-weighted or intersected after the fact.
+    pd.concat(cells, ignore_index=True)[
+        ["model", "estimator", "event_id", "road", "hop", "minutes", "true_effect", "estimated"]
+    ].to_csv(args.out / "cells.csv", index=False)
     flat = [
         {"model": name, **{k: v for k, v in metrics.items() if k != "mae_by_minutes"}}
         for name, metrics in forecast.items()
