@@ -12,5 +12,11 @@ tab:diagnostics,how long each ring stays detectably negative,outputs/hpc/runA/ru
 tab:diagnostics,effect excluding overlapping crashes,outputs/hpc/runA/run/event/effect_excluding_overlaps.csv,ready,18,72c1cb28cc1d2ba4
 tab:synthetic,"known-effect recovery, Benchmark 0",outputs/hpc/runA/run/benchmark-seed42/effect_recovery.csv,ready,160,2fcad29045af9430
 tab:diagnostics,"zero-speed sensitivity, event study",outputs/hpc/runA/run/event-nozero/effect_by_hop.csv,ready,18,9560b122105a4fb4
+tab:diagnostics,"zero-speed sensitivity, forecast",outputs/hpc/runA/run/main-nozero/results.csv,missing,0,
+tab:diagnostics,"zero-speed sensitivity, known-effect recovery",outputs/hpc/runA/run/benchmark-nozero/effect_recovery.csv,missing,0,
 tab:causalmodels,real/self-only/rewired arms,outputs/hpc/runA/run/paper/graph_ablation.csv,ready,12,9c43e7eba7521967
 tab:causalmodels,exposure-conditioned arms,outputs/hpc/runA/run/paper/treatment.csv,ready,9,a7c80560d339fc78
+tab:synthetic,B0-B3 recovery beside the zero null,outputs/hpc/runA/run/paper/scenarios.csv,ready,1600,004177a6218baee5
+tab:diagnostics,all six control-drawing rules,outputs/hpc/runA/run/paper/matching.csv,ready,126,07a87746816e3f0c
+tab:forecast,forecast error by training seed,outputs/hpc/runA/run/paper/forecast_seeds.csv,ready,8,00b30a5c8d45d955
+fig:topology,ten independent relabellings,outputs/hpc/runA/run/paper/topology_spread.csv,missing,0,

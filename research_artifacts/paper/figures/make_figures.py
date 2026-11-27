@@ -465,10 +465,10 @@ series = [
     ("treatment_mlp", "exposure-head", "Treatment MLP", AMBER, "s"),
     ("treatment_gcn", "exposure-head", "Treatment GCN", TEAL, "o"),
 ]
-fig, axes = plt.subplots(1, 2, figsize=(7.08, 2.62), width_ratios=[1.02, 1])
+fig, axes = plt.subplots(1, 3, figsize=(7.08, 2.62), width_ratios=[1.02, 1, 1])
 
 ax = axes[0]
-ax.set_title("a   Absolute error, against estimating no effect", loc="left", pad=8)
+ax.set_title("a   Error against the null", loc="left", pad=8)
 x = np.arange(3)
 null = [
     abs(
@@ -542,7 +542,51 @@ fig.legend(
     columnspacing=1.3,
     handletextpad=0.45,
 )
-fig.subplots_adjust(left=0.085, right=0.99, bottom=0.19, top=0.845, wspace=0.26)
+
+# B1 injects an exact zero on both outer rings, so any neighbour estimate there
+# is invented. This is the panel the observational result has to be read beside.
+ax = axes[2]
+ax.set_title("c   Invented spillover, B1", loc="left", pad=8)
+scen = pd.read_csv(RAW / "scenarios.csv")
+b1 = scen[(scen.scenario == "B1 direct-only") & (scen.group == "hop")].copy()
+b1["value"] = b1.value.astype(int)
+ax.axhline(0, color=NAVY, lw=1.1, zorder=3)
+for model, estimator, _, color, marker in series:
+    g = b1[(b1.model == model) & (b1.estimator == estimator) & (b1.value > 0)]
+    stat = g.groupby("value").estimated_mph.agg(["mean", "std"])
+    ax.errorbar(
+        stat.index,
+        stat["mean"],
+        yerr=stat["std"],
+        color=color,
+        lw=1.45,
+        marker=marker,
+        ms=4.0,
+        mec="white",
+        mew=0.6,
+        capsize=2.5,
+        zorder=4,
+    )
+seen = pd.read_csv(RAW / "event__effect_by_hop.csv")
+real = seen.query("hop in (1, 2) and minutes == 30").set_index("hop").effect
+ax.plot(
+    real.index, real.to_numpy(), color=RED, lw=1.4, ls=(0, (4, 2)), marker="*", ms=8.0, zorder=5
+)
+ax.annotate(
+    "real crashes",
+    xy=(1, real.loc[1]),
+    xytext=(7, 10),
+    textcoords="offset points",
+    fontsize=6.9,
+    color=RED,
+    ha="left",
+)
+ax.set_xticks([1, 2])
+ax.set_xlim(0.72, 2.28)
+ax.set_xlabel("Hops from the crash road")
+ax.set_ylabel("Mean estimated effect (mph)")
+ax.grid(axis="y", color=GRID, lw=0.65)
+fig.subplots_adjust(left=0.062, right=0.99, bottom=0.19, top=0.845, wspace=0.36)
 save(fig, "figure4_recovery")
 
 print("wrote figures 1-4")

@@ -16,12 +16,12 @@ where their outputs stand:
 | `benchmark`, `benchmark-nozero` | B0 known-effect recovery, 9 models | benchmark only |
 | `graph-ablation` (12) | real / self-only / relabelled, 3 seeds + stgcn | yes |
 | `treatment` (3) | exposure-conditioned arms, 3 seeds | yes |
-| `synthetic-scenarios` (9) | **B1, B2, B3 at 3 seeds each** | **no** |
-| `matching` (6) | five alternative control-drawing rules | **no** |
-| `forecast-seeds` (8) | 4 architectures at 2 extra seeds | **no** |
+| `synthetic-scenarios` (9) | B1, B2, B3 at 3 seeds each | yes, after the fix |
+| `matching` (6) | five alternative control-drawing rules | yes, after the fix |
+| `forecast-seeds` (8) | 4 architectures at 2 extra seeds | yes, after the fix |
 
-**The single largest finding of this review is that B1, B2 and B3 were already
-run.** So were the alternative matching arms and the seed sweep. They are sitting
+**Collected on 2026-11-26 and now reported.** B1, B2 and B3 were already
+run. So were the alternative matching arms and the seed sweep. They are sitting
 in `outputs/hpc/runA/run/` on Rivanna. `scripts/aggregate.py` never collected
 them, so they never reached the paper and the earlier notes concluded they were
 missing experiments. They are not. No retraining is required to report them.
@@ -131,6 +131,31 @@ behaviour when the signal is half the noise.
 
 Topology differences of 0.03 mph are being read off a metric whose best
 performer loses to a constant. That is the finding the paper now leads with.
+
+## 4b. B1: every estimator invents spillover
+
+B1 injects a true zero on both outer rings. Mean estimate over three seeds, mph:
+
+| estimator | hop 1 | hop 2 |
+|---|---|---|
+| GCN raw residual | -0.424 | -0.277 |
+| GCN matched residual | -0.239 | -0.106 |
+| MLP matched residual | -0.194 | -0.080 |
+| Treatment GCN | -0.172 | -0.089 |
+| Treatment MLP | -0.135 | -0.106 |
+
+The real-crash matched one-hop estimate is **-0.111**. It sits inside the range
+these estimators produce from an injection with no spillover in it. With the
+pre-crash placebo at -0.064 and the matched-on-target rule giving -0.049 with an
+interval touching zero, the one-hop observational result has no reading as a
+crash effect.
+
+Message passing does not help: the GCN invents more than the MLP in both
+estimator families, though inside the seed spread.
+
+B2 plateau: treatment GCN 1.437 against a null of 1.420, so it loses. B3
+congested: 1.142 against 1.349, so it wins by 15%. Matched residual is near 3.0
+in both.
 
 ## 5. What changed in the code
 

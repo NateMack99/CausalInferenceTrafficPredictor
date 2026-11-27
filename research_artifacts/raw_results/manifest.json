@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-11-26T22:17:59.068100+00:00",
+  "generated_utc": "2026-11-27T00:11:59.447394+00:00",
   "run": "outputs/hpc/runA/run",
   "completed_stages": [
     "audit",
@@ -66,6 +66,10 @@
       "last_timestamp": "2026-04-30T23:45:00"
     }
   },
-  "ready": 15,
-  "missing": []
+  "ready": 18,
+  "missing": [
+    "outputs/hpc/runA/run/benchmark-nozero/effect_recovery.csv",
+    "outputs/hpc/runA/run/main-nozero/results.csv",
+    "outputs/hpc/runA/run/paper/topology_spread.csv"
+  ]
 }
