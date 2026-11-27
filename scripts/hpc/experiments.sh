@@ -91,6 +91,21 @@ case "$stage" in
             --placement uniform --graph-ablation "$graph" --graph-seed 42 \
             --out "$run/graph-ablation/$model-$graph-seed$seed"
         ;;
+    topology-spread)
+        # One relabelling cannot say how a wrong graph performs in general.
+        # Ten of them at three training seeds separate variation over wrong
+        # topologies from variation over initialisations. `real` ignores
+        # --graph-seed, so the existing graph-ablation real arms at seeds
+        # 42-44 are already the paired baseline and are not repeated.
+        (( task >= 0 && task < 30 ))
+        seed=$((42 + task / 10))
+        graph_seed=$((100 + task % 10))
+        uv run --no-sync python scripts/benchmark.py "${window[@]}" \
+            --static-features length_m "${training[@]}" "${benchmark[@]}" \
+            --models gcn --seed "$seed" --shape decay --duration 2 \
+            --placement uniform --graph-ablation permuted --graph-seed "$graph_seed" \
+            --out "$run/topology-spread/gcn-seed$seed-graph$graph_seed"
+        ;;
     treatment)
         # Both arms in one job per seed: they then share an injection, which is
         # what makes it a paired comparison. Both get the same neighbourhood
